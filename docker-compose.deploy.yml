@@ -11,9 +11,6 @@ services:
       - rag-api
     env_file:
       - .env.docker
-    environment:
-      RAG_DOMAIN: ${RAG_DOMAIN:-localhost}
-      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-admin@example.com}
     ports:
       - "80:80"
       - "443:443"
@@ -23,18 +20,23 @@ services:
       - caddy-config:/config
 
   cloudflared:
-    image: cloudflare/cloudflared:2024.8.2
+    build:
+      context: ./deploy/cloudflared
+    image: rag-cloudflared:latest
     restart: unless-stopped
     depends_on:
       - caddy
     env_file:
       - .env.docker
-    environment:
-      CLOUDFLARED_UPSTREAM_URL: ${CLOUDFLARED_UPSTREAM_URL:-https://caddy:443}
-      CLOUDFLARED_PROTOCOL: ${CLOUDFLARED_PROTOCOL:-quic}
-    command: ["/bin/sh", "/etc/cloudflared/run.sh"]
+    command:
+      - cloudflared
+      - tunnel
+      - --config
+      - /etc/cloudflared/config.yml
+      - --no-autoupdate
+      - run
     volumes:
-      - ./deploy/cloudflared/run.sh:/etc/cloudflared/run.sh:ro
+      - ./deploy/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
       - ./deploy/cloudflared/credentials:/etc/cloudflared/credentials:ro
 
 volumes:

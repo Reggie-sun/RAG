@@ -15,6 +15,7 @@ from .config import settings
 from .routers.search import router as search_router
 from .routers.status import index_status_router, router as status_router
 from .routers.feishu import router as feishu_router
+from .routers.customer_service import router as customer_service_router
 from .routers.wechat import router as wechat_router
 from .services.memory_store import memory_store, render_history
 from .services.providers import get_rag_service
@@ -58,6 +59,7 @@ app.include_router(search_router)
 app.include_router(index_status_router)
 app.include_router(status_router)
 app.include_router(feishu_router)
+app.include_router(customer_service_router)
 app.include_router(wechat_router)
 
 

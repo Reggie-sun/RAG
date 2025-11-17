@@ -5,12 +5,18 @@ set -euo pipefail
 : "${RAG_DOMAIN:?Set RAG_DOMAIN in .env.docker}"
 UPSTREAM_URL="${CLOUDFLARED_UPSTREAM_URL:-https://caddy:443}"
 PROTOCOL="${CLOUDFLARED_PROTOCOL:-quic}"
+CONFIG_OVERRIDE="/etc/cloudflared/config.yml"
 CONFIG_PATH="/tmp/cloudflared-config.yml"
 CREDENTIALS_FILE="/etc/cloudflared/credentials/${CLOUDFLARED_TUNNEL_ID}.json"
 
 if [ ! -f "$CREDENTIALS_FILE" ]; then
     echo "Missing Cloudflared credentials JSON at $CREDENTIALS_FILE" >&2
     exit 1
+fi
+
+if [ -f "$CONFIG_OVERRIDE" ]; then
+    echo "Detected /etc/cloudflared/config.yml, using it directly"
+    exec cloudflared tunnel --config "$CONFIG_OVERRIDE" --no-autoupdate run
 fi
 
 cat >"$CONFIG_PATH" <<EOF_CFG
@@ -30,4 +36,4 @@ ingress:
   - service: http_status:404
 EOF_CFG
 
-exec cloudflared tunnel --config "$CONFIG_PATH" run
+exec cloudflared tunnel --config "$CONFIG_PATH" --no-autoupdate run

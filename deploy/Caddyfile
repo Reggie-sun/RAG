@@ -2,10 +2,6 @@
 {
     email {$CADDY_ACME_EMAIL}
     admin off
-    auto_https on
-    servers {
-        trust_proxy
-    }
 }
 
 http://{$RAG_DOMAIN:localhost} {
@@ -35,14 +31,17 @@ http://{$RAG_DOMAIN:localhost} {
         header Origin "*"
         header Access-Control-Request-Method "*"
     }
-    respond @preflight 204 {
-        header Access-Control-Allow-Origin "*"
-        header Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-        header Access-Control-Allow-Headers "*"
-        header Access-Control-Max-Age 86400
+    handle @preflight {
+        header {
+            Access-Control-Allow-Origin "*"
+            Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+            Access-Control-Allow-Headers "*"
+            Access-Control-Max-Age 86400
+        }
+        respond 204
     }
 
-    reverse_proxy rag-api:8000 {
+    reverse_proxy {$RAG_UPSTREAM:rag-api:8000} {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
