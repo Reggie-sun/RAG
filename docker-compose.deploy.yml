@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  rag-api:
+    ports: []
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    depends_on:
+      - rag-api
+    env_file:
+      - .env.docker
+    environment:
+      RAG_DOMAIN: ${RAG_DOMAIN:-localhost}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-admin@example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  cloudflared:
+    image: cloudflare/cloudflared:2024.8.2
+    restart: unless-stopped
+    depends_on:
+      - caddy
+    env_file:
+      - .env.docker
+    environment:
+      CLOUDFLARED_UPSTREAM_URL: ${CLOUDFLARED_UPSTREAM_URL:-https://caddy:443}
+      CLOUDFLARED_PROTOCOL: ${CLOUDFLARED_PROTOCOL:-quic}
+    command: ["/bin/sh", "/etc/cloudflared/run.sh"]
+    volumes:
+      - ./deploy/cloudflared/run.sh:/etc/cloudflared/run.sh:ro
+      - ./deploy/cloudflared/credentials:/etc/cloudflared/credentials:ro
+
+volumes:
+  caddy-data:
+  caddy-config:

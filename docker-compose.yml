@@ -1,0 +1,65 @@
+version: "3.9"
+
+x-backend-image: &backend-image
+  build:
+    context: ./rag-system
+    dockerfile: backend/Dockerfile
+  image: rag-system:latest
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+
+  rag-api:
+    <<: *backend-image
+    restart: unless-stopped
+    depends_on:
+      - redis
+    env_file:
+      - .env.docker
+    ports:
+      - "${RAG_API_PORT:-18000}:8000"
+    volumes:
+      - ./rag-system/data:/app/data
+      - ./models:/app/models:ro
+      - hf-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+
+  celery-worker:
+    image: rag-system:latest
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - rag-api
+    env_file:
+      - .env.docker
+    command: >
+      celery -A backend.task.celery_app worker
+      --loglevel=${CELERY_LOGLEVEL:-info}
+      --concurrency=${CELERY_CONCURRENCY:-2}
+    volumes:
+      - ./rag-system/data:/app/data
+      - ./models:/app/models:ro
+      - hf-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+
+volumes:
+  redis-data:
+  hf-cache:

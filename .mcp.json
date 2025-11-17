@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "/home/reggie/.nvm/versions/node/v22.21.0/bin/node",
+      "args": [
+        "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp/build/src/index.js",
+        "--headless",
+        "--logFile=/home/reggie/vscode_folder/RAG/chrome-devtools-mcp.log",
+        "--executablePath=/usr/bin/google-chrome",
+        "--chromeArg=--no-sandbox",
+        "--chromeArg=--disable-dev-shm-usage",
+        "--chromeArg=--disable-crash-reporter",
+        "--chromeArg=--disable-breakpad"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      },
+      "cwd": "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp"
+    },
+    "consult-llm-mcp": {
+      "command": "npx",
+      "args": ["-y", "consult-llm-mcp@latest"]
+    }
+  }
+}
