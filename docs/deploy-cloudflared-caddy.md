@@ -112,5 +112,31 @@ docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d caddy cl
 | Cloudflared 容器退出，提示找不到 credentials | 检查 `deploy/cloudflared/credentials/<TUNNEL_ID>.json` 路径及权限是否正确。 |
 | 访问 502 | 用 `docker compose logs caddy` 看上游连接错误，再用 `docker compose exec caddy curl -vk rag-api:8000` 直接调试。 |
 | GPU 相关错误 | 和 Caddy/Cloudflared 无关，复用现有 GPU 调试流程即可。 |
+完成以上配置后，你就拥有了一套“GPU 服务 → Caddy 自动 HTTPS → Cloudflared 安全外网暴露”的可重复部署方案。
 
-完成以上配置后，你就拥有了一套“GPU 服务 → Caddy 自动 HTTPS → Cloudflared 安全外网暴露”的可重复部署方案。EOF
+## 本地开发也使用 Caddy（可选）
+
+想让本机 `./start.sh` 启动的 API 也套上一层 Caddy，可使用脚本 `scripts/run-caddy-local.sh`：
+
+```bash
+# 启动本地 API（如已运行可跳过）
+./start.sh
+
+# 另开一终端运行 Caddy
+./scripts/run-caddy-local.sh
+```
+
+脚本会自动设定：
+
+- `RAG_DOMAIN=${RAG_DOMAIN:-localhost}`
+- `RAG_UPSTREAM=${RAG_UPSTREAM:-http://127.0.0.1:8000}`
+- `CADDY_ACME_EMAIL=${CADDY_ACME_EMAIL:-dev@example.com}`
+
+因此浏览器访问 `https://localhost`（或自定义域名）即可命中本地 Caddy，再由它反代到 FastAPI。若要模拟特定域名或不同上游，可在运行脚本前指定环境变量：
+
+```bash
+RAG_DOMAIN=rag.local CADDY_ACME_EMAIL=you@example.com \\
+RAG_UPSTREAM=http://127.0.0.1:8000 ./scripts/run-caddy-local.sh
+```
+
+这样本地调试与 Docker 环境都复用 `deploy/Caddyfile`，行为保持一致。

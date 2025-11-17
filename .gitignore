@@ -32,10 +32,6 @@ models/
 *.mp4
 *.zip
 *.whl
-*.whl
-*.whl
-*.whl
-*.whl
 
 # Cloudflared tunnel credentials
 deploy/cloudflared/credentials/*

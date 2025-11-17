@@ -198,6 +198,35 @@ docker compose up -d
 ✅ **多主题处理** - 并行处理复杂查询
 ✅ **实时反馈** - 进度指示器和诊断信息
 ✅ **引用管理** - 清确的来源归属
+
+
+## 🧑‍💼 客服系统对接
+
+如果后续项目里的客服或机器人需要直接调用 RAG 服务，可以使用内置的对接接口：
+
+- **Endpoint**：`POST /integrations/customer-service/ask`
+- **认证方式**：在 `.env` 中设置 `CUSTOMER_SERVICE_API_KEY=xxxx`，客户端通过 HTTP Header `X-Customer-Service-Token: xxxx` 访问。若未设置 KEY，则接口默认免认证（仅建议在内网/开发环境使用）。
+- **伙伴标识**：可选 Header `X-Customer-Service-Partner: partner_name` 用于区分不同渠道；若不传，则服务端会基于 token 派生匿名 ID。
+- **速率限制**：通过 `CUSTOMER_SERVICE_RATE_LIMIT_PER_MINUTE`（默认 60 req/min）控制每个 partner/token 的限流，超限会返回 HTTP 429。
+- **请求体示例**：
+
+```json
+{
+  "question": "你们的 GPU 配置？",
+  "session_id": "customer:vip001",
+  "allow_web": true,
+  "doc_only": false,
+  "filters": {
+    "source": ["产品资料", "FAQ"]
+  },
+  "metadata": {
+    "channel": "web_chat",
+    "customer_tier": "VIP"
+  }
+}
+```
+
+返回内容包含 `answer`、`citations`、`suggestions`、`sources` 以及回传的 `metadata`，方便客服端贴合上下文展示。如果透传反馈（`feedback` + `feedback_tags` 字段），系统也会自动写入反馈存储，后续检索同一会话会记住历史问答。服务器会自动记录每个 partner 的请求/响应日志，便于排查问题。
 ✅ **性能优化** - 异步处理和智能缓存
 
 享受你的混合检索 RAG 系统！🎉

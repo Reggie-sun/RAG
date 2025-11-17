@@ -82,6 +82,10 @@ class Settings:
     wecom_agent_id: str = os.getenv("WECOM_AGENT_ID", "").strip()
     wecom_corp_secret: str = os.getenv("WECOM_CORP_SECRET", "").strip()
     wecom_encoding_aes_key: str = os.getenv("WECOM_ENCODING_AES_KEY", "").strip()
+    customer_service_api_key: str = os.getenv("CUSTOMER_SERVICE_API_KEY", "").strip()
+    customer_service_rate_limit_per_minute: int = int(
+        os.getenv("CUSTOMER_SERVICE_RATE_LIMIT_PER_MINUTE", "60")
+    )
     cors_allowed_origins: Tuple[str, ...] = tuple(
         origin.strip()
         for origin in os.getenv(

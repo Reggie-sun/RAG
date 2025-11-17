@@ -1,0 +1,21 @@
+tunnel: my-tunnel
+credentials-file: /etc/cloudflared/credentials/ed4152e3-d880-475a-a259-a8152cc41de0.json
+
+ingress:
+  # 前端（Vite）
+  - hostname: www.srj666.com
+    service: https://caddy:443
+
+  # 通用后端 API
+  - hostname: api.srj666.com
+    service: https://caddy:443
+
+  # CPU / 上传 / 索引刷新接口
+  - hostname: cpu.srj666.com
+    service: https://caddy:443
+
+  - hostname: srj666.com
+    service: https://caddy:443
+
+  # 兜底 404
+  - service: http_status:404

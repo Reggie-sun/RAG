@@ -1,8 +1,8 @@
 {
-  "total_docs": 2,
-  "total_chunks": 4,
-  "updated_at": "2025-11-17T10:53:59.046785+00:00",
-  "next_chunk_id": 4,
-  "documents": 2,
-  "chunks": 4
+  "total_docs": 0,
+  "total_chunks": 0,
+  "documents": 0,
+  "chunks": 0,
+  "updated_at": "2025-11-17T12:49:36.077151+00:00",
+  "next_chunk_id": 0
 }

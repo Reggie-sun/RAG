@@ -1,9 +1,10 @@
 import json
+import subprocess
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 import orjson
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from ..config import settings
 from ..utils.gpu import detect_gpu
@@ -14,6 +15,36 @@ router = APIRouter(prefix="/api", tags=["status"])
 index_status_router = APIRouter(prefix="/api", tags=["status"])
 
 __all__ = ["router", "index_status_router"]
+
+PROJECT_ROOT = settings.base_dir.parent.parent
+START_RAG_SCRIPT = (PROJECT_ROOT / "start-rag.sh").resolve()
+
+
+def _restart_rag_services() -> None:
+    logger = get_logger(__name__)
+    script_path = START_RAG_SCRIPT
+
+    if not script_path.exists():
+        logger.warning(
+            "start-rag.sh not found, skip auto-restart",
+            extra={"script_path": str(script_path)},
+        )
+        return
+
+    try:
+        subprocess.Popen(
+            ["/bin/bash", str(script_path)],
+            cwd=str(script_path.parent),
+        )
+        logger.info(
+            "Triggered start-rag.sh after clearing indexes",
+            extra={"script_path": str(script_path)},
+        )
+    except Exception as exc:  # pragma: no cover - best-effort restart
+        logger.error(
+            "Failed to rerun start-rag.sh",
+            extra={"error": str(exc), "script_path": str(script_path)},
+        )
 
 
 def _empty_meta() -> Dict[str, Any]:
@@ -143,7 +174,7 @@ async def retrieval_stats() -> Dict[str, Any]:
 
 
 @router.delete("/index/clear")
-async def clear_index() -> dict[str, str]:
+async def clear_index(background_tasks: BackgroundTasks) -> dict[str, str]:
     """清空所有索引数据，包括向量索引、BM25索引和元数据"""
 
     logger = get_logger(__name__)
@@ -172,6 +203,8 @@ async def clear_index() -> dict[str, str]:
         if settings.retrieval_log_path.exists():
             settings.retrieval_log_path.unlink()
             logger.info("Retrieval logs cleared")
+
+        background_tasks.add_task(_restart_rag_services)
 
         return {"status": "ok", "message": "All indexes cleared successfully"}
 
