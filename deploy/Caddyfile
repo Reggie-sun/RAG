@@ -2,17 +2,20 @@
 {
     email {$CADDY_ACME_EMAIL}
     admin off
+    auto_https disable_redirects
 }
 
-http://{$RAG_DOMAIN:localhost} {
-    @health {
-        path /healthz /ping
+(common_site) {
+    @acme path /.well-known/acme-challenge/*
+    @token path_regexp token ^/.well-known/acme-challenge/(.+)$
+
+    handle @acme {
+        rewrite @token /acme-v02.api.letsencrypt.org-directory/challenge_tokens/{http.regexp.token.1}
+        try_files {path} /acme.zerossl.com-v2-dv90/challenge_tokens/{http.regexp.token.1}
+        root * /data/caddy/acme
+        file_server
     }
-    respond @health 200
-    redir https://{$RAG_DOMAIN:localhost}{uri} permanent
-}
 
-{$RAG_DOMAIN:localhost} {
     encode zstd gzip
 
     header {
@@ -46,8 +49,37 @@ http://{$RAG_DOMAIN:localhost} {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
-        transport http {
-            versions h2c 1.1
-        }
     }
+}
+
+http://{$RAG_DOMAIN:localhost} {
+    import common_site
+}
+
+https://{$RAG_DOMAIN:localhost} {
+    import common_site
+}
+
+http://api.srj666.com {
+    import common_site
+}
+
+https://api.srj666.com {
+    import common_site
+}
+
+http://cpu.srj666.com {
+    import common_site
+}
+
+https://cpu.srj666.com {
+    import common_site
+}
+
+http://srj666.com {
+    import common_site
+}
+
+https://srj666.com {
+    import common_site
 }
