@@ -36,6 +36,24 @@ services:
               count: all
               capabilities: ["gpu"]
 
+  cpu-api:
+    <<: *backend-image
+    restart: unless-stopped
+    depends_on:
+      - redis
+    env_file:
+      - .env.docker
+    command: >
+      uvicorn backend.cpu_tasks_app:app
+      --host 0.0.0.0
+      --port 8001
+    ports:
+      - "${RAG_CPU_API_PORT:-18001}:8001"
+    volumes:
+      - ./rag-system/data:/app/data
+      - ./models:/app/models:ro
+      - hf-cache:/root/.cache/huggingface
+
   celery-worker:
     image: rag-system:latest
     restart: unless-stopped
