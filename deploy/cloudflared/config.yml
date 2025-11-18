@@ -1,5 +1,5 @@
-tunnel: d112e66f-015e-48fa-9ddf-d7906d3391f7
-credentials-file: /etc/cloudflared/credentials/d112e66f-015e-48fa-9ddf-d7906d3391f7.json
+tunnel: 
+credentials-file: 
 protocol: quic
 
 ingress:
