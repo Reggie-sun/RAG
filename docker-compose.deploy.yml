@@ -4,11 +4,15 @@ services:
   rag-api:
     ports: []
 
+  cpu-api:
+    ports: []
+
   caddy:
     image: caddy:2.8.4-alpine
     restart: unless-stopped
     depends_on:
       - rag-api
+      - cpu-api
     env_file:
       - .env.docker
     ports:

@@ -5,7 +5,7 @@
     auto_https disable_redirects
 }
 
-(common_site) {
+(common_site_base) {
     @acme path /.well-known/acme-challenge/*
     @token path_regexp token ^/.well-known/acme-challenge/(.+)$
 
@@ -24,62 +24,47 @@
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
         Permissions-Policy "camera=(), microphone=(), geolocation=(self)"
-        Access-Control-Allow-Origin "*"
-        Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-        Access-Control-Allow-Headers "*"
     }
+}
 
-    @preflight {
-        method OPTIONS
-        header Origin "*"
-        header Access-Control-Request-Method "*"
-    }
-    handle @preflight {
-        header {
-            Access-Control-Allow-Origin "*"
-            Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-            Access-Control-Allow-Headers "*"
-            Access-Control-Max-Age 86400
-        }
-        respond 204
-    }
+(gpu_site) {
+    import common_site_base
+    reverse_proxy {$RAG_GPU_UPSTREAM:rag-api:8000}
+}
 
-    reverse_proxy {$RAG_UPSTREAM:rag-api:8000} {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
+(cpu_site) {
+    import common_site_base
+    reverse_proxy {$RAG_CPU_UPSTREAM:cpu-api:8001}
 }
 
 http://{$RAG_DOMAIN:localhost} {
-    import common_site
+    import gpu_site
 }
 
 https://{$RAG_DOMAIN:localhost} {
-    import common_site
+    import gpu_site
 }
 
 http://api.srj666.com {
-    import common_site
+    import gpu_site
 }
 
 https://api.srj666.com {
-    import common_site
+    import gpu_site
 }
 
 http://cpu.srj666.com {
-    import common_site
+    import cpu_site
 }
 
 https://cpu.srj666.com {
-    import common_site
+    import cpu_site
 }
 
 http://srj666.com {
-    import common_site
+    import gpu_site
 }
 
 https://srj666.com {
-    import common_site
+    import gpu_site
 }
