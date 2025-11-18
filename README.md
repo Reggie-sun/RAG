@@ -1,4 +1,4 @@
-项目：智能 RAG 问答系统（个人/主导开发）
+项目：智能 RAG 问答系统    地址：www.srj666.com   
 技术栈：FastAPI、Python、Celery、Redis、FAISS/BM25、React + TypeScript、Vite、Docker、Ollama/OpenAI、Cloudflare Tunnel、Caddy、Feishu/微信集成
 项目要点示例：
 
