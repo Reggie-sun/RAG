@@ -20,6 +20,13 @@
     "consult-llm-mcp": {
       "command": "npx",
       "args": ["-y", "consult-llm-mcp@latest"]
+    },
+    "rolldev": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@disrex/rolldev-mcp-server"
+      ]
     }
   }
 }
