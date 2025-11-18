@@ -1,6 +1,6 @@
 项目：智能 RAG 问答系统（个人/主导开发）
 技术栈：FastAPI、Python、Celery、Redis、FAISS/BM25、React + TypeScript、Vite、Docker、Ollama/OpenAI、Cloudflare Tunnel、Caddy、Feishu/微信集成
-项目要点示例（选 3–5 条用即可）：
+项目要点示例：
 
 设计并实现基于 FastAPI 的 RAG 服务，结合 FAISS/BM25 向量检索与 Tavily 联网搜索，实现多文档知识问答与多主题复杂问题拆解。
 利用 Celery + Redis 将重型嵌入/检索任务异步化，并按 GPU/CPU 分流请求，降低高并发下的尾延迟。
