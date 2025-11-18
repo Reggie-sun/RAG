@@ -7,3 +7,6 @@
 使用 Docker 与 docker-compose 编排 GPU/CPU 后端、前端、Celery、Redis 等服务，实现一键部署。
 基于 Cloudflare Tunnel + Caddy 搭建公网安全访问方案，配置反向代理和自动 HTTPS 证书管理，将本地 RAG 服务稳定暴露到互联网。
 完成 Feishu / 微信 / 企业微信 机器人接入，处理事件回调与加密消息，使用户可以在 IM 聊天窗口直接查询知识库。
+
+注意：上传用的cpu，加上CPU 节点现在走 Cloudflared + Caddy 双层反代，上传文件会从浏览器 → Cloudflare 边缘 → cloudflared → caddy → cpu-api，比本地直连多了几跳（尤其是 Cloudflare QUIC ↔ 内部 HTTPS 握手），大文件会明显多出几十到上百毫秒的握手和加密开销，所以显得很慢。没有用云服务器，用的自己的5090物理机，所以访问不了就是我下线了。
+。
