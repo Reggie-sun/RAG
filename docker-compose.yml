@@ -28,6 +28,8 @@ services:
       - ./rag-system/data:/app/data
       - ./models:/app/models:ro
       - hf-cache:/root/.cache/huggingface
+    extra_hosts:
+      host.docker.internal: host-gateway
     deploy:
       resources:
         reservations:
@@ -70,6 +72,8 @@ services:
       - ./rag-system/data:/app/data
       - ./models:/app/models:ro
       - hf-cache:/root/.cache/huggingface
+    extra_hosts:
+      host.docker.internal: host-gateway
     deploy:
       resources:
         reservations:

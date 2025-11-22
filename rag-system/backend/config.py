@@ -27,6 +27,12 @@ class Settings:
     base_dir: ClassVar[Path] = Path(__file__).resolve().parent
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_chat_model: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+    # DeepSeek 兼容 OpenAI 接口，用于本地模型不可用时回退
+    deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
+    deepseek_chat_model: str = os.getenv("DEEPSEEK_CHAT_MODEL", "deepseek-chat").strip()
+    deepseek_temperature: float = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.2"))
+    llm_provider_debug: bool = os.getenv("LLM_PROVIDER_DEBUG", "false").lower() in {"1", "true", "yes", "on"}
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:14b")
     ollama_temperature: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))

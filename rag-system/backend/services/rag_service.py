@@ -13,6 +13,7 @@ from difflib import SequenceMatcher
 import httpx
 
 from ollama import AsyncClient
+from openai import AsyncOpenAI
 
 try:
     from ..config import settings
@@ -109,6 +110,13 @@ class RAGService:
         self.logger = get_logger(__name__)
         self.web_search = web_search or WebSearchService()
         self.intent_classifier = intent_classifier or enhanced_classifier
+        self._log_llm_provider = settings.llm_provider_debug
+        self._deepseek_client: Optional[AsyncOpenAI] = None
+        if settings.deepseek_api_key:
+            self._deepseek_client = AsyncOpenAI(
+                api_key=settings.deepseek_api_key,
+                base_url=settings.deepseek_base_url,
+            )
 
     @asynccontextmanager
     async def _ollama_client(self) -> AsyncGenerator[AsyncClient, None]:
@@ -141,6 +149,26 @@ class RAGService:
         inner = getattr(client, "_client", None)
         if inner is not None:
             await inner.aclose()
+
+    def _log_provider_choice(
+        self,
+        provider: str,
+        *,
+        mode: str,
+        attempt: Optional[int] = None,
+        note: Optional[str] = None,
+    ) -> None:
+        if not self._log_llm_provider:
+            return
+        payload: Dict[str, Any] = {
+            "provider": provider,
+            "mode": mode,
+        }
+        if attempt is not None:
+            payload["attempt"] = attempt
+        if note:
+            payload["note"] = note
+        self.logger.info("llm.provider", extra=payload)
 
     def _parse_web_mode(self, web_mode: Optional[str]) -> Optional[WebMode]:
         if not web_mode:
@@ -1785,6 +1813,7 @@ class RAGService:
                     content = response.get("message", {}).get("content", "").strip()
                     if content:
                         content = self._strip_quotes_and_noise(content)
+                    self._log_provider_choice("ollama", mode=mode, attempt=attempt)
                     return content
 
             if attempt < attempts:
@@ -1792,6 +1821,33 @@ class RAGService:
                 jitter = random.uniform(0, base * (2 ** attempt))
                 backoff = min(4.0, jitter)
                 await asyncio.sleep(backoff)
+
+        # ===== DeepSeek 回退逻辑 =====
+        if self._deepseek_client is not None:
+            try:
+                ds_response = await self._deepseek_client.chat.completions.create(
+                    model=settings.deepseek_chat_model,
+                    temperature=settings.deepseek_temperature,
+                    messages=messages,
+                )
+                content = (ds_response.choices[0].message.content or "").strip()
+                if content:
+                    content = self._strip_quotes_and_noise(content)
+                    self._log_provider_choice(
+                        "deepseek",
+                        mode=mode,
+                        note=f"fallback_after_{type(last_error).__name__ if last_error else 'unknown'}",
+                    )
+                    return content
+            except Exception as exc:  # pragma: no cover - 依赖外部服务
+                logger.warning(
+                    "deepseek.chat.error",
+                    extra={
+                        "query": log_query,
+                        "mode": mode,
+                        "exc": type(exc).__name__,
+                    },
+                )
 
         if last_error and not isinstance(last_error, asyncio.TimeoutError):
             logger.exception(
