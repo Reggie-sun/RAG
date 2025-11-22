@@ -99,6 +99,10 @@ class RAGService:
     OLLAMA_MAX_CONNECTIONS = 10
     OLLAMA_MAX_KEEPALIVE_CONNECTIONS = 5
 
+    def _is_web_doc(self, metadata: Dict[str, Any]) -> bool:
+        source_type = str(metadata.get("source_type") or metadata.get("type") or "").lower()
+        return source_type == "web" or bool(metadata.get("url"))
+
     def __init__(
         self,
         retriever: HybridRetriever,
@@ -301,7 +305,9 @@ class RAGService:
             web_hits_total = sum(len(topic_web_docs.get(sub_query, [])) for sub_query in sub_queries)
             diagnostics["web_search_used"] = web_hits_total > 0
             diagnostics["web_hits"] = web_hits_total
-            topic_docs = self._prepare_multi_topic_docs(retrievals)
+            topic_docs = self._enhanced_multi_topic_deduplication(
+                self._prepare_multi_topic_docs(retrievals)
+            )
             diagnostics.update(diagnostics_base)
 
             if web_only and use_web and web_hits_total == 0:
@@ -563,6 +569,7 @@ class RAGService:
                     diagnostics,
                     web_docs=web_docs_single if stacked_mode else None,
                     allow_web=stacked_mode,
+                    quota_hit=quota_state.get("web_quota_hit", False),
                 )
             return await self.answer_general(
                 query,
@@ -576,7 +583,7 @@ class RAGService:
         doc_docs = []
         for item in top_docs:
             metadata = item.get("metadata", {}) or {}
-            if str(metadata.get("source_type", "")).lower() != "web":
+            if not self._is_web_doc(metadata):
                 doc_docs.append(item)
 
         web_docs: List[Dict[str, Any]] = web_docs_single if use_web else []
@@ -701,36 +708,13 @@ class RAGService:
         intent_result: Optional[IntentAnalysisResult] = None,
         feedback: Optional[str] = None,
     ) -> Dict[str, Any]:
-        intent = intent_result or await self.intent_classifier.analyze_intent(query)
-        prompt_core = build_general_prompt(query, feedback=feedback)
-        prompt = self._compose_prompt(history, prompt_core, "general")
-        messages = self._build_messages_for_mode(prompt, "general")
-        answer = await self._chat(messages, query=query, mode="general")
-        if "[非文档知识]" not in answer:
-            answer = "[非文档知识]\n" + answer
-        source_payload = self._build_citations(sources or []) if sources else []
-        meta = self._build_response_meta(
-            intent=intent,
-            strategy="general",
-            multi_topic=False,
-            topics=intent.raw_topics,
-            web_used=False,
-            doc_sources=0,
-            web_sources=0,
+        # 兼容旧调用，直接走统一的常识回答通路
+        return await self._answer_general_knowledge(
+            query,
+            history,
+            intent_result=intent_result,
             feedback=feedback,
         )
-        diag_payload = dict(diagnostics or {})
-        diag_payload["intent_analysis"] = self._intent_payload(intent)
-        return {
-            "answer": answer,
-            "mode": "general",
-            "citations": [],
-            "suggestions": self._general_suggestions(),
-            "sources": source_payload,
-            "diagnostics": diag_payload,
-            "meta": meta,
-            "multi_topics": intent.raw_topics,
-        }
 
     async def stream(
         self,
@@ -1520,7 +1504,7 @@ class RAGService:
             results = retrieval.results or []
             for rank, item in enumerate(results[: settings.doc_answer_max_snippets * 4], start=1):
                 metadata = item.get("metadata", {}) or {}
-                if str(metadata.get("source_type", "")).lower() == "web":
+                if self._is_web_doc(metadata):
                     continue
                 chunk_id = metadata.get("chunk_id") or item.get("chunk_id")
                 if chunk_id is None:
@@ -2152,31 +2136,116 @@ class RAGService:
         def _entry_line(entry: Dict[str, Any]) -> str:
             return self._normalize_whitespace(entry["text"])
 
+        def _shorten_line(line: str, limit: int = 20000) -> str:
+            if len(line) <= limit:
+                return line
+            return line[:limit].rstrip() + "…"
+
+        def _dedup_key(line: str) -> str:
+            return self._normalize_whitespace(line)[:80]
+
+        async def _summarize_segments(
+            heading: str,
+            segments: List[Dict[str, Any]],
+            limit: int = 4,
+        ) -> List[str]:
+            """用 LLM 对片段进行摘要，避免直接贴长原文。"""
+            if not segments:
+                return []
+            payload_lines = []
+            for idx, seg in enumerate(segments[: 12], start=1):
+                payload_lines.append(f"[{idx}] {self._normalize_whitespace(seg['text'])}")
+            prompt = (
+                f"请用要点形式总结下列片段的“{heading}”，每条不超过50字，最多 {limit} 条；"
+                " 保留可执行的操作或注意事项，避免重复。片段：\n" + "\n".join(payload_lines)
+            )
+            messages = self._build_messages_for_mode(prompt, "general")
+            summary_text = await self._chat(messages, query=query, mode="general", fallback="")
+            # 粗拆行
+            lines: List[str] = []
+            for line in summary_text.splitlines():
+                cleaned = line.strip(" -*·\t")
+                if cleaned:
+                    lines.append(cleaned)
+                if len(lines) >= limit:
+                    break
+            return lines
+
         doc_entries = [entry for entry in doc_segments if not entry.get("is_web")]
         primary_entries = doc_entries if doc_entries else doc_segments
         summary_entry = primary_entries[0]
+        seen_texts: Set[str] = set()
+        seen_keys: Set[str] = set()
         answer_parts: List[str] = [f"### 主题：{topic}", "#### 摘要速览"]
-        answer_parts.append(f"- {_entry_line(summary_entry)}")
+        summary_line = _shorten_line(_entry_line(summary_entry))
+        answer_parts.append(f"- {summary_line}")
+        seen_texts.add(summary_line)
+        seen_keys.add(_dedup_key(summary_line))
 
         answer_parts.append("#### 一、关键结论（证据驱动）")
-        key_entries = primary_entries[:6]
-        used_entry_ids = {entry["id"] for entry in key_entries}
-        for entry in key_entries:
-            answer_parts.append(f"- {_entry_line(entry)}")
+        used_entry_ids = {summary_entry["id"]}
+        key_added = 0
+        for entry in primary_entries:
+            if key_added >= 6:
+                break
+            if entry["id"] in used_entry_ids:
+                continue
+            line = _entry_line(entry)
+            if line in seen_texts or _dedup_key(line) in seen_keys:
+                continue
+            answer_parts.append(f"- {line}")
+            seen_texts.add(line)
+            seen_keys.add(_dedup_key(line))
+            used_entry_ids.add(entry["id"])
+            key_added += 1
+        if key_added == 0:
+            # 若无其他结论，退回到剩余片段中挑一条给出，保证非空且不重复
+            for entry in primary_entries:
+                if entry["id"] in used_entry_ids:
+                    continue
+                line = _entry_line(entry)
+                if line in seen_texts or _dedup_key(line) in seen_keys:
+                    continue
+                answer_parts.append(f"- {line}")
+                seen_texts.add(line)
+                seen_keys.add(_dedup_key(line))
+                key_added += 1
+                break
+            if key_added == 0:
+                answer_parts.append("- 未在文档中找到")
 
-        method_entries = [
-            entry
-            for entry in self._filter_segments_by_keywords(
-                primary_entries,
-                ["方法", "步骤", "练习", "操作", "实施", "训练", "采用", "策略", "疗法"],
-            )
-            if entry["id"] not in used_entry_ids
-        ]
-        used_entry_ids.update(entry["id"] for entry in method_entries)
+        method_entries = self._filter_segments_by_keywords(
+            primary_entries,
+            [
+                "方法",
+                "步骤",
+                "练习",
+                "操作",
+                "实施",
+                "训练",
+                "采用",
+                "策略",
+                "疗法",
+                "放松",
+                "练习法",
+                "动作",
+            ],
+        )
         answer_parts.append("#### 二、方法 / 步骤（可执行）")
         if method_entries:
-            for entry in method_entries[:4]:
-                answer_parts.append(f"- {_entry_line(entry)}")
+            method_summary = await _summarize_segments("方法 / 步骤", method_entries, limit=4)
+            if method_summary:
+                for line in method_summary:
+                    answer_parts.append(f"- {line}")
+            else:
+                method_seen: Set[str] = set()
+                for entry in method_entries[:4]:
+                    line = _entry_line(entry)
+                    key = _dedup_key(line)
+                    if key in method_seen:
+                        continue
+                    answer_parts.append(f"- {_shorten_line(line)}")
+                    method_seen.add(key)
         else:
             answer_parts.append("未在文档中找到")
 
@@ -2184,17 +2253,45 @@ class RAGService:
             entry
             for entry in self._filter_segments_by_keywords(
                 primary_entries,
-                ["风险", "注意", "限制", "避免", "警告", "不足", "不建议"],
+                ["风险", "注意", "限制", "避免", "警告", "不足", "不建议", "副作用", "禁忌", "注意事项"],
             )
-            if entry["id"] not in used_entry_ids
         ]
         answer_parts.append("#### 三、风险与限制 / 注意事项")
         if risk_entries:
-            for entry in risk_entries[:4]:
-                answer_parts.append(f"- {_entry_line(entry)}")
+            risk_summary = await _summarize_segments("风险与限制 / 注意事项", risk_entries, limit=4)
+            if risk_summary:
+                for line in risk_summary:
+                    answer_parts.append(f"- {line}")
+            else:
+                risk_seen: Set[str] = set()
+                for entry in risk_entries[:4]:
+                    line = _entry_line(entry)
+                    key = _dedup_key(line)
+                    if key in risk_seen:
+                        continue
+                    answer_parts.append(f"- {_shorten_line(line)}")
+                    risk_seen.add(key)
         else:
             answer_parts.append("未在文档中找到")
-        used_entry_ids.update(entry["id"] for entry in risk_entries)
+
+        # 补充原文摘录，展示尚未在摘要中使用的所有原文片段
+        excerpt_candidates = [entry for entry in doc_segments if not entry.get("is_web")] or doc_segments
+        if excerpt_candidates:
+            answer_parts.append("#### 原文摘录（更多细节）")
+            extra_seen: Set[str] = set()
+            for entry in excerpt_candidates:
+                if entry["id"] in used_entry_ids:
+                    continue
+                line = _entry_line(entry)
+                if not line.strip():
+                    continue
+                key = _dedup_key(line)
+                if key in extra_seen:
+                    continue
+                answer_parts.append(f"- {_shorten_line(line)}")
+                extra_seen.add(key)
+                if len(extra_seen) >= 24:  # 最多 24 条
+                    break
 
         web_entries = [entry for entry in doc_segments if entry.get("is_web")]
         web_unused = [entry for entry in web_entries if entry["id"] not in used_entry_ids]
@@ -2472,6 +2569,7 @@ class RAGService:
             filters: 过滤器
             use_web: 是否允许使用网络搜索
             enable_web_search: 是否需要发起网络搜索（受模式和意图影响）
+            quota_state: 网络搜索配额状态记录
 
         Returns:
             List[Tuple[str, Any]]: 检索结果列表 (查询, 检索结果)

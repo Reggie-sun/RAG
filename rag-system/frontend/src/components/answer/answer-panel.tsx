@@ -5,6 +5,8 @@ import {
   useState,
   type ReactNode,
   type MutableRefObject,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 import {
   AlertTriangle,
@@ -41,6 +43,10 @@ interface ParsedSection {
   title: string;
   markdown: string;
   sources: string[];
+  isOriginalExcerpt?: boolean;
+  anchorId?: string;
+  citationIndexes?: number[];
+  count?: number;
 }
 
 export function AnswerPanel({
@@ -58,6 +64,9 @@ export function AnswerPanel({
   const [highlightedCitationId, setHighlightedCitationId] = useState<
     string | null
   >(null);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(
+    {},
+  );
   const citationRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
@@ -196,6 +205,8 @@ export function AnswerPanel({
           onCopySectionLink={copySectionLink}
           onCitationTagClick={handleCitationTagClick}
           isFocusMode={focusMode}
+          expandedSections={expandedSections}
+          setExpandedSections={setExpandedSections}
         />
       );
     }
@@ -306,6 +317,8 @@ function AnswerContent({
   onCopySectionLink,
   onCitationTagClick,
   isFocusMode,
+  expandedSections,
+  setExpandedSections,
 }: {
   result: SearchResponse;
   sections: ParsedSection[];
@@ -316,28 +329,61 @@ function AnswerContent({
   onCopySectionLink: (sectionId: string) => void;
   onCitationTagClick: (id: string) => void;
   isFocusMode: boolean;
+  expandedSections: Record<string, boolean>;
+  setExpandedSections: Dispatch<SetStateAction<Record<string, boolean>>>;
 }) {
   const sectionDetails = useMemo(() => {
-    return sections.map((section, index) => {
-      const citationIndexes =
-        result.mode === "doc"
-          ? matchCitations(section, citations)
-          : citations.map((_, citationIndex) => citationIndex);
+    return sections
+      .map((section, index) => {
+        const citationIndexes =
+          result.mode === "doc"
+            ? matchCitations(section, citations)
+            : citations.map((_, citationIndex) => citationIndex);
       const count =
         citationIndexes.filter((idx) => idx >= 0).length ||
         section.sources.filter(
           (item) => !item.includes("未检索到可靠来源"),
         ).length;
 
+      const normalizedTitle = section.title.replace(/\s+/g, "");
       const anchorId = section.id || `section-${index + 1}`;
-      return { ...section, anchorId, citationIndexes, count };
-    });
+      const isOriginalExcerpt = normalizedTitle.includes("原文摘录（更多细节）");
+      const baseDetails: ParsedSection & {
+        anchorId: string;
+        citationIndexes: number[];
+      } = {
+        ...section,
+        anchorId,
+        citationIndexes,
+        count,
+        isOriginalExcerpt,
+      };
+      if (isOriginalExcerpt) {
+        const lines = section.markdown
+          .split(/\n+/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (lines.length > 1) {
+          return lines.map((line, lineIndex) => ({
+            ...baseDetails,
+            id: `${section.id}-line-${lineIndex}`,
+            anchorId: `${anchorId}-line-${lineIndex}`,
+            title: lineIndex === 0 ? section.title : "",
+            markdown: line.replace(/^[-•]\s*/, ""),
+          }));
+        }
+      }
+      return baseDetails;
+      })
+      .flat();
   }, [sections, citations, result.mode]);
 
   return (
     <div className={cn("space-y-5", isFocusMode && "space-y-6 text-[15px]")}>
       <div className="space-y-4">
-        {sectionDetails.map((section) => (
+        {sectionDetails.map((section) => {
+          const isOriginalExcerpt = Boolean(section.isOriginalExcerpt);
+          return (
           <article
             key={section.anchorId}
             id={section.anchorId}
@@ -347,17 +393,19 @@ function AnswerContent({
             )}
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h4
-                className={cn(
-                  "text-base font-semibold text-slate-800 dark:text-slate-100",
-                  isFocusMode && "text-lg"
-                )}
-              >
-                {section.title}
-              </h4>
+              {!!section.title && (
+                <h4
+                  className={cn(
+                    "text-base font-semibold text-slate-800 dark:text-slate-100",
+                    isFocusMode && "text-lg"
+                  )}
+                >
+                  {section.title}
+                </h4>
+              )}
               <div className="flex items-center gap-2">
                 <Tag asSpan className={isFocusMode ? "text-sm px-3 py-1.5" : undefined}>
-                  {section.count > 0 ? `${section.count} Sources` : "暂无来源"}
+                  { (section.count ?? 0) > 0 ? `${section.count} Sources` : "暂无来源"}
                 </Tag>
                 <button
                   type="button"
@@ -372,16 +420,59 @@ function AnswerContent({
                 </button>
               </div>
             </div>
-            <div
-              className={cn(
-                "answer-markdown prose prose-slate max-w-none text-sm leading-7 dark:prose-invert",
-                isFocusMode && "text-base leading-8"
-              )}
-            >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {section.markdown}
-              </ReactMarkdown>
-            </div>
+            {isOriginalExcerpt ? (
+              <div className="mt-1 space-y-2">
+                {(() => {
+                  const expanded = expandedSections[section.anchorId] ?? false;
+                  const shouldCollapse = Boolean(section.markdown);
+                  return (
+                    <>
+                      <div
+                        className={cn(
+                          "relative overflow-hidden rounded-lg border border-slate-100/60 bg-white p-3 shadow-inner dark:border-white/5 dark:bg-slate-900/40",
+                          !expanded && "max-h-40"
+                        )}
+                      >
+                        {!expanded && shouldCollapse && (
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-slate-50 via-slate-50/70 to-transparent dark:from-slate-900 dark:via-slate-900/70" />
+                        )}
+                        <ReactMarkdown>
+                          {section.markdown}
+                        </ReactMarkdown>
+                      </div>
+                      {shouldCollapse && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedSections((prev) => ({
+                              ...prev,
+                              [section.anchorId]: !expanded,
+                            }))
+                          }
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full border border-brand-500/70 bg-white px-3 py-1 text-xs font-medium text-brand-600 shadow transition hover:bg-slate-50 dark:border-brand-300/70 dark:bg-slate-900 dark:text-brand-200",
+                            isFocusMode && "text-sm"
+                          )}
+                        >
+                          {expanded ? "收起原文" : "展开更多"}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "answer-markdown prose prose-slate max-w-none text-sm leading-7 dark:prose-invert",
+                  isFocusMode && "text-base leading-8"
+                )}
+              >
+                <ReactMarkdown>
+                  {section.markdown}
+                </ReactMarkdown>
+              </div>
+            )}
             {section.sources.length > 0 ? (
               <footer className="mt-4 flex flex-wrap gap-2">
                 {section.sources.map((item) => (
@@ -396,7 +487,8 @@ function AnswerContent({
               </footer>
             ) : null}
           </article>
-        ))}
+        );
+        })}
       </div>
 
       {result.mode === "doc" && citations.length > 0 ? (
@@ -651,7 +743,7 @@ function parseAnswerSections(answer: string): ParsedSection[] {
     return [];
   }
 
-  return segments.map((segment, index) => {
+  const parsed = segments.map((segment, index) => {
     const lines = segment.trim().split("\n");
     let heading = normalizeHeadingLine(lines[0] ?? "");
     let contentStart = 0;
@@ -689,6 +781,18 @@ function parseAnswerSections(answer: string): ParsedSection[] {
       sources,
     };
   });
+
+  // 去重：避免后端偶发重复段落时前端显示两份
+  const deduped: ParsedSection[] = [];
+  const seen = new Set<string>();
+  for (const item of parsed) {
+    const key = `${item.title}::${item.markdown}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+
+  return deduped;
 }
 
 function normalizeAnswerRoot(answer: string): string {

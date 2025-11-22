@@ -42,11 +42,17 @@ class Settings:
     embedding_model_path: Path = Path(os.getenv("EMBEDDING_MODEL_PATH", "/home/reggie/bge-m3")).expanduser()
     embedding_device: str = os.getenv("EMBEDDING_DEVICE", "auto").strip()
     data_dir: Path = (base_dir / "../data").resolve()
-    faiss_index_path: Path = (base_dir / "../data/faiss_index").resolve()
+    faiss_index_path: Path = Path(
+        os.getenv("FAISS_INDEX_PATH", base_dir / "../data/faiss_index")
+    ).resolve()
+    bm25_index_path: Path = Path(
+        os.getenv("BM25_INDEX_PATH", base_dir / "../data/bm25_index")
+    ).resolve()
     meta_file_path: Path = (base_dir / "db/meta.json").resolve()
-    bm25_index_path: Path = (base_dir / "../data/bm25_index").resolve()
     cache_dir: Path = (base_dir / "../data/emb_cache").resolve()
-    retrieval_log_path: Path = (base_dir / "../data/retrieval_logs.jsonl").resolve()
+    retrieval_log_path: Path = Path(
+        os.getenv("RETRIEVAL_LOG_PATH", base_dir / "../data/retrieval_logs.jsonl")
+    ).resolve()
     log_dir: Path = (base_dir / "../data/logs").resolve()
     app_log_file: Path = (base_dir / "../data/logs/app.log").resolve()
     vector_weight: float = float(os.getenv("VECTOR_WEIGHT", "0.6"))
@@ -118,6 +124,7 @@ class Settings:
                 "next_chunk_id": 0,
             }
             self.meta_file_path.write_text(json.dumps(default_meta, indent=2), encoding="utf-8")
+        self.retrieval_log_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.retrieval_log_path.exists():
             self.retrieval_log_path.write_text("", encoding="utf-8")
         if not self.app_log_file.exists():
