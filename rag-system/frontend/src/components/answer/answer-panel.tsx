@@ -103,6 +103,61 @@ function looksLikeMojibake(text: string): boolean {
 
   if (/^(漫\\s*J口|C\\s*对男女慢性盆腔疼痛综合征)/i.test(s)) return true;
 
+  const tokens = s
+    .split(/[\s,，。．、；：!?\\-—·•・…\/\\|]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length >= 5) {
+    const isolatedLatin = tokens.filter((token) => /^[A-Za-z]$/.test(token));
+    if (isolatedLatin.length >= 4) return true;
+
+    const singleCharTokens = tokens.filter((token) => token.length === 1);
+    const punctuationClusters =
+      s.match(/[，。,\\.、；：:!?\\-—·…]{2,}/g)?.length ?? 0;
+    if (
+      singleCharTokens.length >= 6 &&
+      singleCharTokens.length / Math.max(tokens.length, 1) > 0.6 &&
+      punctuationClusters >= 1
+    ) {
+      return true;
+    }
+
+    const metaKeywords = ["作者", "编者", "主编", "译者", "出版社", "出版"];
+    const hasMeta = tokens.some((token) =>
+      metaKeywords.some((kw) => token.includes(kw)),
+    );
+    const hasSentencePunct = /[。！？!?.]/.test(s);
+    const hasContentVerb = /(提出|指出|建议|强调|总结|描述|讲述|分享|认为|说明|介绍)/.test(
+      s,
+    );
+    const singleCharRatio =
+      tokens.filter((token) => token.length === 1).length /
+      Math.max(tokens.length, 1);
+    const longTokenCount = tokens.filter((token) => token.length >= 4).length;
+    if (
+      tokens.length <= 8 &&
+      hasMeta &&
+      !hasSentencePunct &&
+      !hasContentVerb
+    ) {
+      return true;
+    }
+    if (
+      hasMeta &&
+      !hasContentVerb &&
+      singleCharRatio >= 0.35 &&
+      longTokenCount <= 3
+    ) {
+      return true;
+    }
+    if (hasMeta && !hasContentVerb && singleCharRatio >= 0.5) {
+      return true;
+    }
+    if (hasMeta && !hasContentVerb && tokens.length <= 5) {
+      return true;
+    }
+  }
+
   return false;
 }
 

@@ -1334,7 +1334,69 @@ class RAGService:
             return ""
         cleaned = NOISE_CHAR_PATTERN.sub(" ", text)
         cleaned = re.sub(r"[`^~_*+=<>\\|]+", " ", cleaned)
-        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if not cleaned:
+            return ""
+
+        tokens = [t for t in re.split(r"[\s,，。．、；：!?\-—·…/\\|]+", cleaned) if t]
+        if not tokens:
+            return ""
+
+        isolated_latin = [t for t in tokens if re.fullmatch(r"[A-Za-z]", t)]
+        single_chars = [t for t in tokens if len(t) == 1]
+        long_tokens = [t for t in tokens if len(t) > 1]
+
+        if len(isolated_latin) >= 4 and long_tokens:
+            tokens = long_tokens
+            single_chars = [t for t in tokens if len(t) == 1]
+            long_tokens = [t for t in tokens if len(t) > 1]
+
+        if (
+            len(single_chars) >= 6
+            and len(single_chars) / max(len(tokens), 1) > 0.6
+            and long_tokens
+        ):
+            tokens = long_tokens
+        if tokens:
+            token_count = len(tokens)
+            has_sentence_punct = bool(re.search(r"[。！？!?.]", cleaned))
+            meta_keywords = ("作者", "编者", "主编", "译者", "译", "编写", "审校", "校对")
+            meta_hit = any(kw in cleaned for kw in meta_keywords)
+            publisher_hit = "出版社" in cleaned or "出版" in cleaned
+            has_content_verb = bool(
+                re.search(r"(提出|指出|建议|强调|总结|描述|讲述|分享|认为|说明|介绍)", cleaned)
+            )
+            single_char_count = sum(1 for t in tokens if len(t) == 1)
+            single_char_ratio = single_char_count / max(token_count, 1)
+            long_token_count = sum(1 for t in tokens if len(t) >= 4)
+
+            if (
+                token_count <= 8
+                and (meta_hit or publisher_hit)
+                and not has_sentence_punct
+                and not has_content_verb
+            ):
+                return ""
+            if (
+                meta_hit
+                and "作者" in cleaned
+                and token_count <= 6
+                and sum(1 for t in tokens if len(t) >= 5) >= 2
+                and not has_sentence_punct
+            ):
+                return ""
+            if (
+                (meta_hit or publisher_hit)
+                and not has_content_verb
+                and single_char_ratio >= 0.35
+                and long_token_count <= 3
+            ):
+                return ""
+            if meta_hit and not has_content_verb and single_char_ratio >= 0.5:
+                return ""
+            if meta_hit and not has_content_verb and token_count <= 5:
+                return ""
+        cleaned = " ".join(tokens)
         return cleaned.strip()
 
     def _clean_leading_symbols(self, text: str) -> str:
