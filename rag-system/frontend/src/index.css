@@ -246,6 +246,12 @@
     padding-inline: clamp(1rem, 3vw, 2.5rem);
   }
 
+  .answer-markdown :where(ul) {
+    list-style: none; /* 去掉灰色圆点 */
+    padding-left: 0;
+    margin-left: 0;
+  }
+
   .answer-markdown :where(p) {
     text-indent: 2em;
     text-align: justify;
@@ -253,7 +259,9 @@
 
   .answer-markdown :where(li) {
     text-align: justify;
-    text-indent: 2em;
+    text-indent: 2em; /* 保持首行缩进两格，列表与段落一致 */
+    padding-left: 0;
+    list-style-position: inside;
   }
 
   .reference-snippet {

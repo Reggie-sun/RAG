@@ -2368,7 +2368,7 @@ class RAGService:
                     answer_parts.append(f"- {_strip_leading_order(_shorten_line(line))}")
                     method_seen.add(key)
         else:
-            answer_parts.append("未在文档中找到")
+            answer_parts.append("- 未在文档中找到")
 
         risk_entries = [
             entry
@@ -2393,7 +2393,7 @@ class RAGService:
                     answer_parts.append(f"- {_strip_leading_order(_shorten_line(line))}")
                     risk_seen.add(key)
         else:
-            answer_parts.append("未在文档中找到")
+            answer_parts.append("- 未在文档中找到")
 
         # 补充原文摘录，展示更宽松阈值下的片段
         excerpt_entries = [entry for entry in doc_segments_extra if not entry.get("is_web")] or doc_segments_extra
