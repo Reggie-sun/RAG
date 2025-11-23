@@ -71,6 +71,9 @@ STOPWORDS_EN: Set[str] = {
     "those",
 }
 STOPWORDS_ZH: Set[str] = {"的", "了", "和", "及", "与", "或", "以及"}
+NOISE_CHAR_PATTERN = re.compile(
+    r"[^0-9A-Za-z\u4e00-\u9fff\s，。！？、；：：“”‘’（）《》【】…·—\-/％%,.!?'\"]+"
+)
 
 
 class RAGService:
@@ -1319,6 +1322,17 @@ class RAGService:
         normalized = re.sub(r"\s+", " ", normalized)
         return normalized.strip()
 
+    def _clean_noise_text(self, text: str) -> str:
+        """
+        去除 PDF 解析残留的乱码符号，保留常见中英文与标点。
+        """
+        if not text:
+            return ""
+        cleaned = NOISE_CHAR_PATTERN.sub(" ", text)
+        cleaned = re.sub(r"[`^~_*+=<>\\|]+", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip()
+
     def _clean_leading_symbols(self, text: str) -> str:
         if not text:
             return ""
@@ -2244,7 +2258,7 @@ class RAGService:
         }
 
         def _entry_line(entry: Dict[str, Any]) -> str:
-            return self._normalize_whitespace(entry["text"])
+            return self._normalize_whitespace(self._clean_noise_text(entry["text"]))
 
         def _shorten_line(line: str, limit: int = 20000) -> str:
             if len(line) <= limit:
