@@ -15,7 +15,7 @@ __pycache__/
 .venv/
 env/
 venv/
-
+*.env
 # IDE / OS
 .vscode/
 .idea/
@@ -26,6 +26,7 @@ data/
 datasets/
 checkpoints/
 models/
+Unimportant/
 *.bin
 *.pt
 *.onnx
