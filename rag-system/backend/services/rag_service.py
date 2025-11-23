@@ -250,6 +250,10 @@ class RAGService:
             "web_available": web_client_ready,
             "providers": getattr(self.web_search, "provider_order", []) if self.web_search else [],
             "module_config": module_config,
+            "retrieval_thresholds": {
+                "summary": settings.retrieval_confidence_threshold,
+                "excerpt": settings.retrieval_excerpt_confidence_threshold,
+            },
         }
 
         # 确定是否需要联网搜索
@@ -270,6 +274,8 @@ class RAGService:
         diagnostics: Dict[str, Any] = {}
         web_docs_single: List[Dict[str, Any]] = []
         topic_web_docs: Dict[str, List[Dict[str, Any]]] = {}
+        excerpt_docs_for_answer: List[Dict[str, Any]] = []
+        excerpt_diag: Optional[Dict[str, Any]] = None
         web_available = web_client_ready
         use_web = resolved_mode != WebMode.OFF and web_available
         web_only = resolved_mode == WebMode.ONLY
@@ -425,6 +431,30 @@ class RAGService:
                 use_rerank=use_rerank,
                 filters=filters,
             )
+            excerpt_docs_for_answer = retrieval.results
+            try:
+                if settings.retrieval_excerpt_confidence_threshold != settings.retrieval_confidence_threshold:
+                    excerpt_retrieval = await self.retriever.retrieve(
+                        query,
+                        top_k,
+                        alpha=alpha,
+                        use_rerank=use_rerank,
+                        filters=filters,
+                        confidence_threshold=settings.retrieval_excerpt_confidence_threshold,
+                    )
+                    excerpt_docs_for_answer = excerpt_retrieval.results
+                    excerpt_diag = {
+                        "confidence_threshold": excerpt_retrieval.diagnostics.get("confidence_threshold"),
+                        "confidence": excerpt_retrieval.diagnostics.get("confidence"),
+                        "fused_top_k": excerpt_retrieval.diagnostics.get("fused_top_k"),
+                        "final_top_k": excerpt_retrieval.diagnostics.get("final_top_k"),
+                        "requested_top_k": excerpt_retrieval.diagnostics.get("requested_top_k"),
+                    }
+            except Exception as exc:  # pragma: no cover - best effort path
+                self.logger.warning(
+                    "retrieval.excerpt_failed",
+                    extra={"error": str(exc)},
+                )
             trigger_web = (
                 use_web
                 and retrieval is not None
@@ -452,6 +482,17 @@ class RAGService:
         diagnostics["intent_analysis"] = self._intent_payload(intent_result)
         diagnostics["web_search_used"] = bool(web_docs_single)
         diagnostics["web_hits"] = len(web_docs_single)
+        diagnostics["retrieval_thresholds"] = {
+            "summary": settings.retrieval_confidence_threshold,
+            "excerpt": settings.retrieval_excerpt_confidence_threshold,
+        }
+        if excerpt_diag is not None:
+            diagnostics["excerpt_retrieval"] = excerpt_diag
+        elif excerpt_docs_for_answer:
+            diagnostics["excerpt_retrieval"] = {
+                "confidence_threshold": settings.retrieval_excerpt_confidence_threshold,
+                "final_top_k": len(excerpt_docs_for_answer),
+            }
         diagnostics["doc_only_mode"] = doc_only_mode
         if use_cached_docs and cached_docs:
             diagnostics["doc_context_cached"] = True
@@ -590,7 +631,16 @@ class RAGService:
         if doc_only_mode and not stacked_mode:
             web_docs = []
 
-        primary_docs = doc_docs if doc_docs else top_docs
+        primary_docs = [
+            doc
+            for doc in doc_docs
+            if self._document_score(doc) >= settings.retrieval_confidence_threshold
+        ]
+        diagnostics["summary_retrieval"] = {
+            "confidence_threshold": settings.retrieval_confidence_threshold,
+            "hits": len(primary_docs),
+            "total": len(doc_docs),
+        }
         combined_docs = primary_docs + (web_docs if use_web else [])
         topic_override = None
         if use_web and web_docs and not doc_docs:
@@ -599,6 +649,7 @@ class RAGService:
             query,
             combined_docs,
             topic_name=topic_override,
+            excerpt_docs=excerpt_docs_for_answer,
         )
 
         if doc_docs and structured_answer and not has_feedback:
@@ -611,7 +662,7 @@ class RAGService:
                     multi_topic=False,
                     topics=None,
                     web_used=bool(web_docs),
-                    doc_sources=len(doc_docs),
+                    doc_sources=len(primary_docs),
                     web_sources=len(web_docs),
                     modules=module_config,
                     feedback=feedback,
@@ -651,8 +702,9 @@ class RAGService:
                 feedback=feedback,
             )
 
-        mode = "doc" if top_docs and (doc_hint or is_doc_mode(top_score)) else "general"
-        prompt_core = self._build_single_topic_prompt(query, top_docs, mode, feedback=feedback)
+        prompt_docs = primary_docs if primary_docs else top_docs
+        mode = "doc" if prompt_docs and (doc_hint or is_doc_mode(top_score)) else "general"
+        prompt_core = self._build_single_topic_prompt(query, prompt_docs, mode, feedback=feedback)
         prompt = self._compose_prompt(history, prompt_core, mode)
         messages = self._build_messages_for_mode(prompt, mode)
         answer = await self._chat(messages, query=query, mode=mode)
@@ -672,7 +724,7 @@ class RAGService:
             )
         if mode == "general" and "[非文档知识]" not in answer:
             answer = "[非文档知识]\n" + answer
-        citations = self._build_citations(top_docs) if mode == "doc" else []
+        citations = self._build_citations(prompt_docs) if mode == "doc" else []
         suggestions = self._general_suggestions() if mode != "doc" else []
         meta = self._build_response_meta(
             intent=intent_result,
@@ -680,7 +732,7 @@ class RAGService:
             multi_topic=False,
             topics=None,
             web_used=bool(web_docs),
-            doc_sources=len(top_docs) if mode == "doc" else 0,
+            doc_sources=len(primary_docs) if mode == "doc" else 0,
             web_sources=len(web_docs),
             modules=module_config,
             feedback=feedback,
@@ -2090,48 +2142,106 @@ class RAGService:
         self,
         query: str,
         docs: List[Dict[str, Any]],
-        topic_name: Optional[str] = None
+        topic_name: Optional[str] = None,
+        excerpt_docs: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[str, List[Dict[str, Any]]]:
-        if not docs:
+        primary_docs = list(docs or [])
+        excerpt_source_docs = list(excerpt_docs) if excerpt_docs is not None else primary_docs
+        if not primary_docs and not excerpt_source_docs:
             topic = topic_name or self._extract_main_topic(query)
             message = f"### 主题：{topic}\n\n未检索到可引用的文档内容。"
             return message, []
 
         topic = topic_name or self._extract_main_topic(query)
-        doc_segments: List[Dict[str, Any]] = []
-        doc_labels: Dict[int, Dict[str, Any]] = {}
+        label_registry: Dict[Tuple[str, Optional[int], bool], Dict[str, Any]] = {}
+        doc_segments_primary: List[Dict[str, Any]] = []
+        doc_segments_extra: List[Dict[str, Any]] = []
         seen_segments: Set[Tuple[int, str]] = set()
-        for idx, doc in enumerate(docs, start=1):
-            source, page, text, _ = self._doc_fields(doc)
-            clean_text = self._clean_leading_symbols(text)
-            if not clean_text:
-                continue
-            label = source or "未知来源"
-            if page not in (None, ""):
-                label = f"{label} · P{page}"
-            metadata = (doc.get("metadata") or {}) if isinstance(doc, dict) else {}
-            source_type = str(metadata.get("source_type") or metadata.get("type") or "").lower()
-            is_web_doc = bool(source_type == "web" or metadata.get("url"))
-            if is_web_doc:
-                label = f"(联网) {label}"
-            doc_labels[idx] = {"label": label, "source": source, "page": page, "is_web": is_web_doc}
-            for sentence in self._segment_sentences(clean_text):
-                key = (idx, sentence[:80])
-                if key in seen_segments:
+
+        def _collect_segments_from_docs(
+            items: List[Dict[str, Any]],
+            start_doc_idx: int,
+            base_entry_id: int,
+        ) -> Tuple[List[Dict[str, Any]], int, int]:
+            segments: List[Dict[str, Any]] = []
+            next_doc_idx = start_doc_idx
+            entry_id = base_entry_id
+            for doc in items:
+                source, page, text, _ = self._doc_fields(doc)
+                clean_text = self._clean_leading_symbols(text)
+                if not clean_text:
                     continue
-                seen_segments.add(key)
-                doc_segments.append(
-                    {
-                        "doc_idx": idx,
-                        "text": self._ensure_sentence(sentence),
-                        "id": len(doc_segments),
+                metadata = (doc.get("metadata") or {}) if isinstance(doc, dict) else {}
+                source_type = str(metadata.get("source_type") or metadata.get("type") or "").lower()
+                is_web_doc = bool(source_type == "web" or metadata.get("url"))
+                label_key = (source, page, is_web_doc)
+                label_info = label_registry.get(label_key)
+                doc_idx = label_info["idx"] if label_info else next_doc_idx
+                if label_info is None:
+                    label = source or "未知来源"
+                    if page not in (None, ""):
+                        label = f"{label} · P{page}"
+                    if is_web_doc:
+                        label = f"(联网) {label}"
+                    label_info = {
+                        "idx": doc_idx,
+                        "label": label,
+                        "source": source,
+                        "page": page,
                         "is_web": is_web_doc,
                     }
-                )
-        if not doc_segments:
+                    label_registry[label_key] = label_info
+                    next_doc_idx += 1
+                for sentence in self._segment_sentences(clean_text):
+                    key = (doc_idx, sentence[:80])
+                    if key in seen_segments:
+                        continue
+                    seen_segments.add(key)
+                    segments.append(
+                        {
+                            "doc_idx": doc_idx,
+                            "text": self._ensure_sentence(sentence),
+                            "id": entry_id,
+                            "is_web": is_web_doc,
+                        }
+                    )
+                    entry_id += 1
+            return segments, next_doc_idx, entry_id
+
+        next_doc_idx = 1
+        next_entry_id = 0
+        doc_segments_primary, next_doc_idx, next_entry_id = _collect_segments_from_docs(
+            primary_docs,
+            next_doc_idx,
+            next_entry_id,
+        )
+        doc_segments_extra, next_doc_idx, next_entry_id = _collect_segments_from_docs(
+            excerpt_source_docs,
+            next_doc_idx,
+            next_entry_id,
+        )
+
+        doc_segments = doc_segments_primary or doc_segments_extra
+        all_segments: List[Dict[str, Any]] = []
+        if doc_segments_primary:
+            all_segments.extend(doc_segments_primary)
+        if doc_segments_extra:
+            all_segments.extend(doc_segments_extra)
+
+        if not all_segments:
             topic = topic_name or self._extract_main_topic(query)
             message = f"### 主题：{topic}\n\n文档内容无法解析。"
             return message, []
+
+        doc_labels = {
+            info["idx"]: {
+                "label": info["label"],
+                "source": info["source"],
+                "page": info["page"],
+                "is_web": info["is_web"],
+            }
+            for info in label_registry.values()
+        }
 
         def _entry_line(entry: Dict[str, Any]) -> str:
             return self._normalize_whitespace(entry["text"])
@@ -2171,36 +2281,29 @@ class RAGService:
                     break
             return lines
 
-        doc_entries = [entry for entry in doc_segments if not entry.get("is_web")]
-        primary_entries = doc_entries if doc_entries else doc_segments
-        summary_entry = primary_entries[0]
+        primary_entries = [entry for entry in doc_segments_primary if not entry.get("is_web")] or list(
+            doc_segments_primary
+        )
         seen_texts: Set[str] = set()
         seen_keys: Set[str] = set()
+        used_entry_ids: Set[int] = set()
         answer_parts: List[str] = [f"### 主题：{topic}", "#### 摘要速览"]
-        summary_line = _shorten_line(_entry_line(summary_entry))
-        answer_parts.append(f"- {summary_line}")
-        seen_texts.add(summary_line)
-        seen_keys.add(_dedup_key(summary_line))
+        if primary_entries:
+            summary_entry = primary_entries[0]
+            summary_line = _shorten_line(_entry_line(summary_entry))
+            answer_parts.append(f"- {summary_line}")
+            seen_texts.add(summary_line)
+            seen_keys.add(_dedup_key(summary_line))
+            used_entry_ids.add(summary_entry["id"])
+        else:
+            answer_parts.append("- 未检索到满足置信度阈值的文档片段，以下原文摘录供参考。")
 
         answer_parts.append("#### 一、关键结论（证据驱动）")
-        used_entry_ids = {summary_entry["id"]}
-        key_added = 0
-        for entry in primary_entries:
-            if key_added >= 6:
-                break
-            if entry["id"] in used_entry_ids:
-                continue
-            line = _entry_line(entry)
-            if line in seen_texts or _dedup_key(line) in seen_keys:
-                continue
-            answer_parts.append(f"- {line}")
-            seen_texts.add(line)
-            seen_keys.add(_dedup_key(line))
-            used_entry_ids.add(entry["id"])
-            key_added += 1
-        if key_added == 0:
-            # 若无其他结论，退回到剩余片段中挑一条给出，保证非空且不重复
+        if primary_entries:
+            key_added = 0
             for entry in primary_entries:
+                if key_added >= 6:
+                    break
                 if entry["id"] in used_entry_ids:
                     continue
                 line = _entry_line(entry)
@@ -2209,10 +2312,25 @@ class RAGService:
                 answer_parts.append(f"- {line}")
                 seen_texts.add(line)
                 seen_keys.add(_dedup_key(line))
+                used_entry_ids.add(entry["id"])
                 key_added += 1
-                break
             if key_added == 0:
-                answer_parts.append("- 未在文档中找到")
+                # 若无其他结论，退回到剩余片段中挑一条给出，保证非空且不重复
+                for entry in primary_entries:
+                    if entry["id"] in used_entry_ids:
+                        continue
+                    line = _entry_line(entry)
+                    if line in seen_texts or _dedup_key(line) in seen_keys:
+                        continue
+                    answer_parts.append(f"- {line}")
+                    seen_texts.add(line)
+                    seen_keys.add(_dedup_key(line))
+                    key_added += 1
+                    break
+                if key_added == 0:
+                    answer_parts.append("- 未在文档中找到")
+        else:
+            answer_parts.append("- 未检索到满足置信度阈值的结论。")
 
         method_entries = self._filter_segments_by_keywords(
             primary_entries,
@@ -2232,11 +2350,14 @@ class RAGService:
             ],
         )
         answer_parts.append("#### 二、方法 / 步骤（可执行）")
+        def _strip_leading_order(text: str) -> str:
+            return re.sub(r"^[\s]*([0-9]+|[一二三四五六七八九十]+)[\.)、]\s*", "", text.strip())
+
         if method_entries:
             method_summary = await _summarize_segments("方法 / 步骤", method_entries, limit=4)
             if method_summary:
                 for line in method_summary:
-                    answer_parts.append(f"- {line}")
+                    answer_parts.append(f"- {_strip_leading_order(line)}")
             else:
                 method_seen: Set[str] = set()
                 for entry in method_entries[:4]:
@@ -2244,7 +2365,7 @@ class RAGService:
                     key = _dedup_key(line)
                     if key in method_seen:
                         continue
-                    answer_parts.append(f"- {_shorten_line(line)}")
+                    answer_parts.append(f"- {_strip_leading_order(_shorten_line(line))}")
                     method_seen.add(key)
         else:
             answer_parts.append("未在文档中找到")
@@ -2261,7 +2382,7 @@ class RAGService:
             risk_summary = await _summarize_segments("风险与限制 / 注意事项", risk_entries, limit=4)
             if risk_summary:
                 for line in risk_summary:
-                    answer_parts.append(f"- {line}")
+                    answer_parts.append(f"- {_strip_leading_order(line)}")
             else:
                 risk_seen: Set[str] = set()
                 for entry in risk_entries[:4]:
@@ -2269,19 +2390,17 @@ class RAGService:
                     key = _dedup_key(line)
                     if key in risk_seen:
                         continue
-                    answer_parts.append(f"- {_shorten_line(line)}")
+                    answer_parts.append(f"- {_strip_leading_order(_shorten_line(line))}")
                     risk_seen.add(key)
         else:
             answer_parts.append("未在文档中找到")
 
-        # 补充原文摘录，展示尚未在摘要中使用的所有原文片段
-        excerpt_candidates = [entry for entry in doc_segments if not entry.get("is_web")] or doc_segments
-        if excerpt_candidates:
+        # 补充原文摘录，展示更宽松阈值下的片段
+        excerpt_entries = [entry for entry in doc_segments_extra if not entry.get("is_web")] or doc_segments_extra
+        if excerpt_entries:
             answer_parts.append("#### 原文摘录（更多细节）")
             extra_seen: Set[str] = set()
-            for entry in excerpt_candidates:
-                if entry["id"] in used_entry_ids:
-                    continue
+            for entry in excerpt_entries:
                 line = _entry_line(entry)
                 if not line.strip():
                     continue
@@ -2292,8 +2411,11 @@ class RAGService:
                 extra_seen.add(key)
                 if len(extra_seen) >= 24:  # 最多 24 条
                     break
+        else:
+            answer_parts.append("#### 原文摘录（更多细节）")
+            answer_parts.append("原文存在编码或抽取问题，暂未展示原文片段。")
 
-        web_entries = [entry for entry in doc_segments if entry.get("is_web")]
+        web_entries = [entry for entry in all_segments if entry.get("is_web")]
         web_unused = [entry for entry in web_entries if entry["id"] not in used_entry_ids]
         if web_unused:
             answer_parts.append("#### **联网补充**")
@@ -2305,7 +2427,22 @@ class RAGService:
             info = doc_labels[idx]
             label = info["label"]
             answer_parts.append(f"- {label}")
-        return "\n".join(answer_parts), self._build_citations(docs)
+
+        def _citation_key(doc: Dict[str, Any]) -> Tuple[str, Optional[int], str]:
+            source, page, text, _ = self._doc_fields(doc)
+            return source, page, self._normalize_whitespace(text)[:160]
+
+        citation_docs: List[Dict[str, Any]] = []
+        seen_doc_keys: Set[Tuple[str, Optional[int], str]] = set()
+        for bucket in (primary_docs, excerpt_source_docs):
+            for doc in bucket:
+                key = _citation_key(doc)
+                if key in seen_doc_keys:
+                    continue
+                seen_doc_keys.add(key)
+                citation_docs.append(doc)
+
+        return "\n".join(answer_parts), self._build_citations(citation_docs)
 
     def _extract_main_topic(self, query: str) -> str:
         """从查询中提取主要主题"""

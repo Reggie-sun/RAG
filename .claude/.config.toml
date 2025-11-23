@@ -1,0 +1,68 @@
+[mcp]
+enabled = true
+timeout = 30
+
+[mcp.chrome-devtools]
+command = "node"
+args = [
+  "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp/build/src/index.js",
+  "--headless",
+  "--isolated",
+  "--logFile=/home/reggie/vscode_folder/RAG/chrome-devtools-mcp.log",
+  "--executablePath=/usr/bin/google-chrome",
+  "--chromeArg=--no-sandbox",
+  "--chromeArg=--disable-dev-shm-usage",
+  "--chromeArg=--disable-crash-reporter",
+  "--chromeArg=--disable-breakpad",
+  "--chromeArg=--user-data-dir=/home/reggie/.cache/chrome-devtools-mcp/profile-3"
+]
+cwd = "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp"
+
+[mcp.chrome-devtools.env]
+DEBUG = "mcp:*"
+
+[mcp.chrome-devtools-headless]
+command = "node"
+args = [
+  "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp/build/src/index.js",
+  "--headless",
+  "--isolated",
+  "--logFile=/home/reggie/vscode_folder/RAG/chrome-devtools-headless-mcp.log",
+  "--executablePath=/usr/bin/google-chrome",
+  "--chromeArg=--no-sandbox",
+  "--chromeArg=--disable-dev-shm-usage",
+  "--chromeArg=--disable-crash-reporter",
+  "--chromeArg=--disable-breakpad",
+  "--chromeArg=--user-data-dir=/home/reggie/.cache/chrome-devtools-mcp/profile-4"
+]
+cwd = "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp"
+
+[mcp.chrome-devtools-headless.env]
+DEBUG = "mcp:*"
+
+[mcp.consult-llm-mcp]
+command = "npx"
+args = ["-y", "consult-llm-mcp@latest"]
+
+[mcp.rolldev]
+command = "npx"
+args = [
+  "-y",
+  "@disrex/rolldev-mcp-server"
+]
+
+[mcp.system-monitor]
+command = "/home/reggie/miniconda3/envs/mcp-monitor/bin/python"
+args = [
+  "/home/reggie/vscode_folder/MCP/mcp-system-monitor/mcp_system_monitor_server.py"
+]
+cwd = "/home/reggie/vscode_folder/MCP/mcp-system-monitor"
+
+[project]
+name = "RAG System"
+description = "RAG (Retrieval-Augmented Generation) system with document search"
+root = "/home/reggie/vscode_folder/RAG"
+
+[project.tools]
+dev_server = true
+hot_reload = true

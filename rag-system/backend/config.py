@@ -61,6 +61,10 @@ class Settings:
     retrieval_default_top_k: int = int(os.getenv("RETRIEVAL_TOP_K", "6"))
     retrieval_max_top_k: int = int(os.getenv("RETRIEVAL_MAX_TOP_K", "20"))
     retrieval_confidence_threshold: float = float(os.getenv("RETRIEVAL_CONFIDENCE_THRESHOLD", "0.45"))
+    # 原文摘录使用更宽松的阈值，尽量保留 top-k 片段
+    retrieval_excerpt_confidence_threshold: float = float(
+        os.getenv("RETRIEVAL_EXCERPT_CONFIDENCE_THRESHOLD", "0.15")
+    )
     max_retrieval_logs: int = int(os.getenv("MAX_RETRIEVAL_LOGS", "500"))
     doc_answer_threshold: float = float(os.getenv("DOC_ANSWER_THRESHOLD", "0.6"))
     doc_answer_max_snippets: int = int(os.getenv("DOC_ANSWER_MAX_SNIPPETS", "3"))
@@ -151,6 +155,5 @@ def _configure_embedding_device() -> None:
             settings.embedding_device = resolve_device(settings.preferred_cuda_device)
         else:
             settings.embedding_device = "cpu"
-
 
 _configure_embedding_device()

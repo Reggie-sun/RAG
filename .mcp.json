@@ -1,16 +1,37 @@
 {
   "mcpServers": {
     "chrome-devtools": {
-      "command": "/home/reggie/.nvm/versions/node/v22.21.0/bin/node",
+      "command": "node",
       "args": [
         "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp/build/src/index.js",
         "--headless",
+        "--isolated",
         "--logFile=/home/reggie/vscode_folder/RAG/chrome-devtools-mcp.log",
         "--executablePath=/usr/bin/google-chrome",
         "--chromeArg=--no-sandbox",
         "--chromeArg=--disable-dev-shm-usage",
         "--chromeArg=--disable-crash-reporter",
-        "--chromeArg=--disable-breakpad"
+        "--chromeArg=--disable-breakpad",
+        "--chromeArg=--user-data-dir=/home/reggie/.cache/chrome-devtools-mcp/profile-3"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      },
+      "cwd": "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp"
+    },
+    "chrome-devtools-headless": {
+      "command": "node",
+      "args": [
+        "/home/reggie/vscode_folder/MCP/chrome-devtools-mcp/build/src/index.js",
+        "--headless",
+        "--isolated",
+        "--logFile=/home/reggie/vscode_folder/RAG/chrome-devtools-headless-mcp.log",
+        "--executablePath=/usr/bin/google-chrome",
+        "--chromeArg=--no-sandbox",
+        "--chromeArg=--disable-dev-shm-usage",
+        "--chromeArg=--disable-crash-reporter",
+        "--chromeArg=--disable-breakpad",
+        "--chromeArg=--user-data-dir=/home/reggie/.cache/chrome-devtools-mcp/profile-4"
       ],
       "env": {
         "DEBUG": "mcp:*"
@@ -26,7 +47,14 @@
       "args": [
         "-y",
         "@disrex/rolldev-mcp-server"
-      ]
+      ]  
+    },
+    "system-monitor": {
+      "command": "/home/reggie/miniconda3/envs/mcp-monitor/bin/python",
+      "args": [
+        "/home/reggie/vscode_folder/MCP/mcp-system-monitor/mcp_system_monitor_server.py"
+      ],
+      "cwd": "/home/reggie/vscode_folder/MCP/mcp-system-monitor"
     }
   }
 }

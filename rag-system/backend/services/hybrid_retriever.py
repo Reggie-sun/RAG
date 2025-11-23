@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+import re
 
 import orjson
 from rank_bm25 import BM25Okapi
@@ -49,6 +50,7 @@ class HybridRetriever:
             "alpha": alpha,
             "requested_top_k": top_k,
             "filters": filters,
+            "confidence_threshold": settings.retrieval_confidence_threshold,
         }
 
         adaptive_k = max(top_k, settings.retrieval_default_top_k)
@@ -63,6 +65,7 @@ class HybridRetriever:
 
             fused_results = self._fuse_results(vector_hits, bm25_hits, alpha)
             fused_results = self._apply_filters(fused_results, filters)
+            fused_results = self._filter_gibberish(fused_results, diagnostics)
             confidence = fused_results[0]["score"] if fused_results else 0.0
 
             diagnostics.update(
@@ -217,6 +220,54 @@ class HybridRetriever:
                 continue
             filtered.append(item)
         return filtered or hits
+
+    def _filter_gibberish(self, hits: List[Dict[str, Any]], diagnostics: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if not hits:
+            return hits
+
+        def _looks_like_mojibake(text: str) -> bool:
+            cleaned = (text or "").strip()
+            if len(cleaned) < 8:
+                return False
+            cjk = sum(1 for ch in cleaned if "\u4e00" <= ch <= "\u9fff")
+            latin_supp = sum(1 for ch in cleaned if "\u00c0" <= ch <= "\u017f")
+            basic_latin = sum(1 for ch in cleaned if "a" <= ch.lower() <= "z")
+            total = len(cleaned)
+            if cleaned.count("�") / max(total, 1) > 0.02:
+                return True
+            if cjk == 0 and ("Ã" in cleaned or "Â" in cleaned or latin_supp > 0):
+                ratio = (basic_latin + latin_supp) / max(total, 1)
+                if ratio > 0.7:
+                    return True
+            if cjk == 0:
+                extended = sum(1 for ch in cleaned if ch in {"ä", "å", "æ", "ç", "è", "é", "ê", "ë", "ö", "ø", "ï", "î", "ñ"})
+                ratio = (basic_latin + latin_supp) / max(total, 1)
+                if extended and ratio > 0.6:
+                    return True
+                if ratio > 0.85:
+                    return True
+            if re.fullmatch(r"[-=+/\\_|~!@#$%^&*()<>\"'`:;.,，。；、…·\\s]{8,}", cleaned):
+                return True
+            return False
+
+        filtered: List[Dict[str, Any]] = []
+        for item in hits:
+            text = (
+                item.get("text")
+                or item.get("metadata", {}).get("text")
+                or item.get("content")
+                or ""
+            )
+            if _looks_like_mojibake(str(text)):
+                continue
+            filtered.append(item)
+
+        removed = len(hits) - len(filtered)
+        if filtered:
+            if removed > 0:
+                diagnostics["gibberish_filtered"] = removed
+            return filtered
+        return hits
 
     def _tokenize(self, text: str) -> List[str]:
         return [token.lower() for token in text.split() if token.strip()]

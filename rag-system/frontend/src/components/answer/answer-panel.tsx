@@ -378,6 +378,54 @@ function AnswerContent({
       .flat();
   }, [sections, citations, result.mode]);
 
+  const excerptInfo = useMemo(() => {
+    const thresholds = result.diagnostics?.retrieval_thresholds;
+    const excerptDiag = result.diagnostics?.excerpt_retrieval;
+    const summaryDiag = result.diagnostics?.summary_retrieval;
+    const excerptThreshold =
+      typeof excerptDiag?.confidence_threshold === "number"
+        ? excerptDiag.confidence_threshold
+        : typeof thresholds?.excerpt === "number"
+          ? thresholds.excerpt
+          : undefined;
+    const summaryThreshold =
+      typeof summaryDiag?.confidence_threshold === "number"
+        ? summaryDiag.confidence_threshold
+        : typeof thresholds?.summary === "number"
+          ? thresholds.summary
+          : undefined;
+    const summaryHits =
+      typeof summaryDiag?.hits === "number" ? summaryDiag.hits : undefined;
+    const summaryTotal =
+      typeof summaryDiag?.total === "number" ? summaryDiag.total : undefined;
+    const excerptTopK =
+      typeof excerptDiag?.final_top_k === "number"
+        ? excerptDiag.final_top_k
+        : typeof excerptDiag?.requested_top_k === "number"
+          ? excerptDiag.requested_top_k
+          : undefined;
+    const summaryLimited =
+      typeof summaryHits === "number" &&
+      typeof summaryTotal === "number" &&
+      summaryHits < summaryTotal;
+    return {
+      excerptThreshold,
+      summaryThreshold,
+      summaryHits,
+      summaryTotal,
+      excerptTopK,
+      summaryLimited,
+      error: excerptDiag?.error,
+      hasData:
+        typeof excerptThreshold === "number" ||
+        typeof excerptTopK === "number" ||
+        typeof summaryThreshold === "number" ||
+        typeof summaryHits === "number" ||
+        typeof summaryTotal === "number" ||
+        Boolean(excerptDiag?.error),
+    };
+  }, [result]);
+
   return (
     <div className={cn("space-y-5", isFocusMode && "space-y-6 text-[15px]")}>
       <div className="space-y-4">
@@ -420,6 +468,53 @@ function AnswerContent({
                 </button>
               </div>
             </div>
+            {isOriginalExcerpt && excerptInfo.hasData ? (
+              <div
+                className={cn(
+                  "mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-300",
+                  isFocusMode && "text-sm"
+                )}
+              >
+                {typeof excerptInfo.summaryThreshold === "number" ? (
+                  <Tag
+                    asSpan
+                    className="bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    摘要阈值 {excerptInfo.summaryThreshold.toFixed(2)}
+                  </Tag>
+                ) : null}
+                {typeof excerptInfo.summaryHits === "number" ? (
+                  <span>
+                    高置信片段 {excerptInfo.summaryHits}
+                    {typeof excerptInfo.summaryTotal === "number"
+                      ? `/${excerptInfo.summaryTotal}`
+                      : ""}
+                  </span>
+                ) : null}
+                {excerptInfo.summaryLimited ? (
+                  <span className="text-amber-600 dark:text-amber-300">
+                    低于阈值的片段仅在原文摘录中展示
+                  </span>
+                ) : null}
+                <Tag
+                  asSpan
+                  className="bg-slate-50 text-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  低阈值检索
+                </Tag>
+                {typeof excerptInfo.excerptThreshold === "number" ? (
+                  <span>阈值 {excerptInfo.excerptThreshold.toFixed(2)}</span>
+                ) : null}
+                {typeof excerptInfo.excerptTopK === "number" ? (
+                  <span>展示 Top {excerptInfo.excerptTopK}</span>
+                ) : null}
+                {excerptInfo.error ? (
+                  <span className="text-amber-600 dark:text-amber-300">
+                    {excerptInfo.error}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {isOriginalExcerpt ? (
               <div className="mt-1 space-y-2">
                 {(() => {

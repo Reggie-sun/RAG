@@ -53,6 +53,23 @@ export interface SearchDiagnostics {
   generation_time?: number;
   topics?: Record<string, unknown>;
   errors?: string[];
+  retrieval_thresholds?: {
+    summary?: number;
+    excerpt?: number;
+  };
+  excerpt_retrieval?: {
+    confidence_threshold?: number;
+    confidence?: number;
+    fused_top_k?: number;
+    final_top_k?: number;
+    requested_top_k?: number;
+    error?: string;
+  };
+  summary_retrieval?: {
+    confidence_threshold?: number;
+    hits?: number;
+    total?: number;
+  };
 }
 
 export interface SourceStats {
