@@ -49,6 +49,63 @@ interface ParsedSection {
   count?: number;
 }
 
+function looksLikeMojibake(text: string): boolean {
+  if (!text) return false;
+  const s = text.trim();
+  if (s.length < 6) return false;
+
+  let cjk = 0;
+  let basicLatin = 0;
+  let latinSupp = 0;
+  let replacement = 0;
+  let punctOrSymbol = 0;
+  let digit = 0;
+
+  for (const ch of s) {
+    const code = ch.charCodeAt(0);
+    if (ch === "�") replacement++;
+    if (code >= 0x4e00 && code <= 0x9fff) {
+      cjk++;
+    } else if ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a)) {
+      basicLatin++;
+    } else if (code >= 0xc0 && code <= 0x17f) {
+      latinSupp++;
+    } else if (code >= 0x30 && code <= 0x39) {
+      digit++;
+    } else if (
+      (code >= 0x20 && code <= 0x2f) ||
+      (code >= 0x3a && code <= 0x40) ||
+      (code >= 0x5b && code <= 0x60) ||
+      (code >= 0x7b && code <= 0x7f) ||
+      (code >= 0x2000 && code <= 0x206f)
+    ) {
+      punctOrSymbol++;
+    }
+  }
+
+  const total = s.length;
+  if (cjk === 0 && (latinSupp > 0 || s.includes("Ã") || s.includes("Â"))) {
+    const ratio = (basicLatin + latinSupp) / Math.max(total, 1);
+    if (ratio > 0.7) return true;
+  }
+  if (replacement > 0 && replacement / Math.max(total, 1) > 0.05) return true;
+
+  const lettersAndDigits = cjk + basicLatin + latinSupp + digit;
+  const punctRatio = punctOrSymbol / Math.max(total, 1);
+  if (lettersAndDigits <= 6 && punctRatio > 0.45) return true;
+  if (lettersAndDigits > 0 && punctOrSymbol > 8 && punctRatio > 0.5) return true;
+
+  const symbolHeavy = punctRatio > 0.35 && lettersAndDigits / Math.max(total, 1) < 0.65;
+  if (symbolHeavy) return true;
+  if (/[,，。\.、\-·…]{4,}/.test(s)) return true;
+  if (punctOrSymbol >= 6 && punctOrSymbol > lettersAndDigits * 1.2) return true;
+  if (/[，。．、；：!?\\-\\s\\u3000]{6,}/.test(s)) return true;
+
+  if (/^(漫\\s*J口|C\\s*对男女慢性盆腔疼痛综合征)/i.test(s)) return true;
+
+  return false;
+}
+
 export function AnswerPanel({
   result,
   isLoading,
@@ -362,7 +419,7 @@ function AnswerContent({
         const lines = section.markdown
           .split(/\n+/)
           .map((line) => line.trim())
-          .filter(Boolean);
+          .filter((line) => Boolean(line) && !looksLikeMojibake(line.replace(/^[-•]\s*/, "")));
         if (lines.length > 1) {
           return lines.map((line, lineIndex) => ({
             ...baseDetails,
@@ -371,6 +428,9 @@ function AnswerContent({
             title: lineIndex === 0 ? section.title : "",
             markdown: line.replace(/^[-•]\s*/, ""),
           }));
+        }
+        if (lines.length === 0) {
+          return [];
         }
       }
       return baseDetails;

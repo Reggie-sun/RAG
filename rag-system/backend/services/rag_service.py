@@ -71,6 +71,10 @@ STOPWORDS_EN: Set[str] = {
     "those",
 }
 STOPWORDS_ZH: Set[str] = {"的", "了", "和", "及", "与", "或", "以及"}
+NOISY_PREFIX_PATTERN = re.compile(
+    r"^(漫\s*J口|C\s*对男女慢性盆腔疼痛综合征)",
+    re.IGNORECASE,
+)
 NOISE_CHAR_PATTERN = re.compile(
     r"[^0-9A-Za-z\u4e00-\u9fff\s，。！？、；：：“”‘’（）《》【】…·—\-/％%,.!?'\"]+"
 )
@@ -2258,7 +2262,10 @@ class RAGService:
         }
 
         def _entry_line(entry: Dict[str, Any]) -> str:
-            return self._normalize_whitespace(self._clean_noise_text(entry["text"]))
+            cleaned = self._normalize_whitespace(self._clean_noise_text(entry["text"]))
+            if NOISY_PREFIX_PATTERN.match(cleaned):
+                return ""
+            return cleaned
 
         def _shorten_line(line: str, limit: int = 20000) -> str:
             if len(line) <= limit:
@@ -2305,10 +2312,11 @@ class RAGService:
         if primary_entries:
             summary_entry = primary_entries[0]
             summary_line = _shorten_line(_entry_line(summary_entry))
-            answer_parts.append(f"- {summary_line}")
-            seen_texts.add(summary_line)
-            seen_keys.add(_dedup_key(summary_line))
-            used_entry_ids.add(summary_entry["id"])
+            if summary_line:
+                answer_parts.append(f"- {summary_line}")
+                seen_texts.add(summary_line)
+                seen_keys.add(_dedup_key(summary_line))
+                used_entry_ids.add(summary_entry["id"])
         else:
             answer_parts.append("- 未检索到满足置信度阈值的文档片段，以下原文摘录供参考。")
 
@@ -2321,6 +2329,8 @@ class RAGService:
                 if entry["id"] in used_entry_ids:
                     continue
                 line = _entry_line(entry)
+                if not line:
+                    continue
                 if line in seen_texts or _dedup_key(line) in seen_keys:
                     continue
                 answer_parts.append(f"- {line}")
@@ -2334,6 +2344,8 @@ class RAGService:
                     if entry["id"] in used_entry_ids:
                         continue
                     line = _entry_line(entry)
+                    if not line:
+                        continue
                     if line in seen_texts or _dedup_key(line) in seen_keys:
                         continue
                     answer_parts.append(f"- {line}")
@@ -2379,6 +2391,8 @@ class RAGService:
                     key = _dedup_key(line)
                     if key in method_seen:
                         continue
+                    if not line:
+                        continue
                     answer_parts.append(f"- {_strip_leading_order(_shorten_line(line))}")
                     method_seen.add(key)
         else:
@@ -2403,6 +2417,8 @@ class RAGService:
                     line = _entry_line(entry)
                     key = _dedup_key(line)
                     if key in risk_seen:
+                        continue
+                    if not line:
                         continue
                     answer_parts.append(f"- {_strip_leading_order(_shorten_line(line))}")
                     risk_seen.add(key)
