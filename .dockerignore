@@ -1,0 +1,53 @@
+# VCS / metadata
+.git
+.gitignore
+.claude
+.codex
+
+# Node
+node_modules
+frontend/node_modules
+dist
+build
+*.log
+npm-debug.log*
+yarn-debug.log*
+.pnpm-store
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+env
+venv
+
+# Local data / large assets
+Unimportant
+models
+data
+datasets
+checkpoints
+*.pt
+*.bin
+*.onnx
+*.mp4
+*.zip
+*.whl
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+
+# OS / IDE
+.DS_Store
+.vscode
+.idea
+
+# Cached artifacts
+hf-cache
+frontend/.vite
+backend/.mypy_cache
+backend/.pytest_cache

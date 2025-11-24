@@ -1337,6 +1337,7 @@ class RAGService:
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         if not cleaned:
             return ""
+        preserved_cleaned = cleaned
 
         tokens = [t for t in re.split(r"[\s,，。．、；：!?\-—·…/\\|]+", cleaned) if t]
         if not tokens:
@@ -1396,8 +1397,7 @@ class RAGService:
                 return ""
             if meta_hit and not has_content_verb and token_count <= 5:
                 return ""
-        cleaned = " ".join(tokens)
-        return cleaned.strip()
+        return preserved_cleaned
 
     def _clean_leading_symbols(self, text: str) -> str:
         if not text:
