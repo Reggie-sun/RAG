@@ -35,7 +35,7 @@
 (cpu_site) {
     import common_site_base
     reverse_proxy {$RAG_CPU_UPSTREAM:cpu-api:8001}
-reload}
+}
 
 http://{$RAG_DOMAIN:localhost} {
     import gpu_site
