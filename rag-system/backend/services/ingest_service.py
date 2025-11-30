@@ -16,6 +16,7 @@ import pytesseract
 
 from ..config import settings
 from .vector_service import VectorService
+from .tokenization import tokenize
 from ..utils.logger import get_logger
 
 
@@ -33,31 +34,35 @@ class IngestService:
         if not chunks:
             raise ValueError("Document could not be parsed")
 
-        chunk_id_start = self._reserve_chunk_ids(len(chunks))
+        # 仍然更新元数据计数器，chunk_id 改为稳定字符串格式
+        self._reserve_chunk_ids(len(chunks))
         prepared_docs: List[Document] = []
         bm25_entries: List[bytes] = []
         source_type = self._detect_source_type(filename)
 
         for idx, chunk in enumerate(chunks):
-            chunk_id = chunk_id_start + idx
+            # 生成稳定 chunk_id，便于向量/ BM25 两通道对齐
+            chunk_id = f"{filename}#p{chunk.metadata.get('page', 0)}#{idx}"
             metadata = dict(chunk.metadata)
             metadata.update(
                 {
-                    "chunk_id": chunk_id,
-                    "chunk_index": idx,
-                    "source": filename,
+                "chunk_id": chunk_id,
+                "chunk_index": idx,
+                "source": filename,
                     "source_type": source_type,
                     "ingested_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             document = Document(page_content=chunk.page_content, metadata=metadata)
             prepared_docs.append(document)
+            # BM25 索引条目，分词与检索共享 simple_tokenize
             bm25_entries.append(
                 orjson.dumps(
                     {
                         "chunk_id": chunk_id,
                         "text": chunk.page_content,
-                        "tokens": self._tokenize(chunk.page_content),
+                        # 统一 tokenizer：构建 BM25 与检索一致
+                        "tokens": tokenize(chunk.page_content),
                         "source": filename,
                         "metadata": metadata,
                     }

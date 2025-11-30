@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-import re
 
 import orjson
 from rank_bm25 import BM25Okapi
 
 from ..config import settings
+from ..utils.logger import get_logger
 from .rerank_service import RerankService
 from .vector_service import VectorService
+from .tokenization import tokenize
 
 
 @dataclass
@@ -26,11 +28,14 @@ class HybridRetriever:
         alpha: float | None = None,
     ) -> None:
         self.vector_service = vector_service
-        self.reranker = reranker if settings.use_rerank else None
+        self.reranker = reranker
+        # 默认是否使用 rerank 由配置决定，但不覆盖显式传入的 reranker
+        self.default_use_rerank = settings.use_rerank
         self.alpha = alpha or settings.vector_weight
         self.index_file = settings.bm25_index_path / "index.jsonl"
         self._bm25: Optional[BM25Okapi] = None
         self._bm25_entries: List[Dict[str, Any]] = []
+        self.logger = get_logger(__name__)
         self._load_bm25_index()
 
     async def retrieve(
@@ -40,17 +45,23 @@ class HybridRetriever:
         alpha: Optional[float] = None,
         use_rerank: Optional[bool] = None,
         filters: Optional[Dict[str, Any]] = None,
+        confidence_threshold: Optional[float] = None,
     ) -> HybridRetrievalResult:
         alpha = alpha if alpha is not None else self.alpha
         use_rerank = use_rerank if use_rerank is not None else settings.use_rerank
         filters = filters or {}
+        conf_threshold = (
+            confidence_threshold
+            if confidence_threshold is not None
+            else settings.retrieval_confidence_threshold
+        )
 
         diagnostics: Dict[str, Any] = {
             "query": query,
             "alpha": alpha,
             "requested_top_k": top_k,
             "filters": filters,
-            "confidence_threshold": settings.retrieval_confidence_threshold,
+            "confidence_threshold": conf_threshold,
         }
 
         adaptive_k = max(top_k, settings.retrieval_default_top_k)
@@ -69,6 +80,29 @@ class HybridRetriever:
             fused_results = self._filter_gibberish(fused_results, diagnostics)
             confidence = fused_results[0]["score"] if fused_results else 0.0
 
+            try:
+                vec_only = sum(
+                    1
+                    for x in fused_results
+                    if x.get("metadata", {}).get("bm25_score", 0) == 0
+                )
+                bm25_only = sum(
+                    1
+                    for x in fused_results
+                    if x.get("metadata", {}).get("vector_score", 0) == 0
+                )
+                # 直接写入 message，便于 stdout 查看
+                self.logger.info(
+                    "hybrid.debug q=%s vec_hits=%d bm25_hits=%d vec_only=%d bm25_only=%d",
+                    query,
+                    len(vector_hits),
+                    len(bm25_hits),
+                    vec_only,
+                    bm25_only,
+                )
+            except Exception:
+                pass
+
             diagnostics.update(
                 {
                     "vector_hits": vector_hits,
@@ -78,12 +112,14 @@ class HybridRetriever:
                 }
             )
 
-            if confidence >= settings.retrieval_confidence_threshold or adaptive_k >= settings.retrieval_max_top_k:
+            if confidence >= conf_threshold or adaptive_k >= settings.retrieval_max_top_k:
                 break
             adaptive_k = min(adaptive_k * 2, settings.retrieval_max_top_k)
 
         capped_results = fused_results[: adaptive_k]
 
+        diagnostics["vector_hits_count"] = len(vector_hits)
+        diagnostics["bm25_hits_count"] = len(bm25_hits)
         diagnostics["pre_rerank"] = capped_results
 
         if use_rerank and self.reranker is not None:
@@ -153,6 +189,8 @@ class HybridRetriever:
 
         vec_norm = self._normalize_scores(vector_hits)
         bm25_norm = self._normalize_scores(bm25_hits)
+        vec_ids = {str(item.get("chunk_id")) for item in vector_hits}
+        bm_ids = {str(item.get("chunk_id")) for item in bm25_hits}
 
         for item in vector_hits:
             chunk_id = str(item.get("chunk_id"))
@@ -178,10 +216,12 @@ class HybridRetriever:
         for chunk_id, item in combined.items():
             vector_score = item.get("vector_score", 0.0)
             bm25_score = item.get("bm25_score", 0.0)
-            # 如果只有一条路径有分数，就直接用该路径的分数，避免被 alpha 稀释成恒 0.6
-            if bm25_score == 0.0 and vector_score != 0.0:
+            has_vec = chunk_id in vec_ids
+            has_bm = chunk_id in bm_ids
+
+            if has_vec and not has_bm:
                 fused_score = vector_score
-            elif vector_score == 0.0 and bm25_score != 0.0:
+            elif has_bm and not has_vec:
                 fused_score = bm25_score
             else:
                 fused_score = alpha * vector_score + (1 - alpha) * bm25_score
@@ -200,26 +240,31 @@ class HybridRetriever:
     def _normalize_scores(self, hits: List[Dict[str, Any]]) -> Dict[str, float]:
         if not hits:
             return {}
-        scores = [float(item.get("score", 0.0)) for item in hits]
-        max_score = max(scores)
-        min_score = min(scores)
-        # 如果所有分数相同，按排名做轻微衰减，避免全部落在同一个分数档
-        if max_score == min_score:
+        scores = [float(item.get("score", 0.0) or 0.0) for item in hits]
+        max_s = max(scores)
+        min_s = min(scores)
+
+        # 全部相同：按排名衰减，避免全 1
+        if max_s == min_s:
             normalized: Dict[str, float] = {}
-            for idx, item in enumerate(hits):
-                base = float(item.get("score", 0.0)) or 1.0
-                decay = max(0.5, 1.0 - 0.05 * idx)  # 至少保留 0.5
+            for rank, item in enumerate(hits):
+                base = float(item.get("score", 0.0) or 1.0)
+                decay = max(0.5, 1.0 - 0.05 * rank)
                 normalized[str(item.get("chunk_id"))] = base * decay
             return normalized
+
         return {
-            str(item.get("chunk_id")): (float(item.get("score", 0.0)) - min_score) / (max_score - min_score)
+            str(item.get("chunk_id")): (float(item.get("score", 0.0) or 0.0) - min_s) / (max_s - min_s)
             for item in hits
         }
 
     def _apply_filters(self, hits: List[Dict[str, Any]], filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not filters:
             return hits
-        allowed_sources = {value.lower() for value in (filters.get("source") or [])}
+        raw_sources = filters.get("source") or []
+        if isinstance(raw_sources, str):
+            raw_sources = [raw_sources]
+        allowed_sources = {value.lower() for value in raw_sources}
         min_score = float(filters.get("min_score", 0.0))
 
         filtered: List[Dict[str, Any]] = []
@@ -259,7 +304,7 @@ class HybridRetriever:
                     return True
                 if ratio > 0.85:
                     return True
-            if re.fullmatch(r"[-=+/\\_|~!@#$%^&*()<>\"'`:;.,，。；、…·\\s]{8,}", cleaned):
+            if re.fullmatch(r"[\s\-=+/\\_|~!@#$%^&*()<>\"'`:;.,，。；、…·]{8,}", cleaned):
                 return True
             return False
 
@@ -328,4 +373,5 @@ class HybridRetriever:
         return diversified or hits
 
     def _tokenize(self, text: str) -> List[str]:
-        return [token.lower() for token in text.split() if token.strip()]
+        # 与 ingest 时构建 BM25 的分词逻辑保持一致
+        return tokenize(text)

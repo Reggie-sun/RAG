@@ -51,6 +51,9 @@ class VectorService:
         if not documents:
             return
 
+        # 防止传入迭代器被多次消费
+        documents = list(documents)
+
         texts = [doc.page_content for doc in documents]
         embeddings = self._embed_documents(documents)
         metadatas = [doc.metadata for doc in documents]
@@ -107,6 +110,10 @@ class VectorService:
             for idx, vec in zip(missing_indices, computed):
                 embeddings[idx] = vec
                 self._cache.set(hashes[idx], vec)
+
+        if any(vec is None for vec in embeddings):
+            missing = [i for i, vec in enumerate(embeddings) if vec is None]
+            raise RuntimeError(f"Embedding failed for indices: {missing}")
 
         return [vec for vec in embeddings if vec is not None]
 

@@ -558,6 +558,8 @@ class RAGService:
             retrieval.results,
             k=candidate_pool_k,
         )
+        diagnostics["top_score"] = float(top_score or 0.0)
+        diagnostics["scores"] = [float(d.get("score", 0.0) or 0.0) for d in retrieval.results[:20]]
         top_docs = self._diversify_by_source(
             candidates,
             k=settings.doc_answer_max_snippets,
@@ -688,7 +690,9 @@ class RAGService:
 
         doc_hint = has_doc_hint(query)
         overlap = self._token_overlap_ratio(query, top_docs)
-        score_threshold = max(self.OFF_TOPIC_SCORE_THRESHOLD, settings.doc_answer_threshold)
+        # 动态阈值：根据 top_score 拉低要求，避免所有 query 都被判定离谱
+        dynamic_threshold = min(0.4, max(0.2, (top_score or 0.0) * 0.7))
+        score_threshold = max(settings.doc_answer_threshold, dynamic_threshold)
         if not doc_hint and (
             top_score < score_threshold or overlap < self.OFF_TOPIC_OVERLAP_THRESHOLD
         ):

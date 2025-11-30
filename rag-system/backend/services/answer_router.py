@@ -350,7 +350,7 @@ class RAGService:
             return picked
 
         top_score = _score(picked[0])
-        score_floor = max(settings.doc_answer_threshold - 0.05, top_score * 0.6)
+        score_floor = max(settings.doc_answer_threshold * 0.8, (top_score or 0.0) * 0.6)
 
         used = {id(x) for x in picked}
         for item in results:
