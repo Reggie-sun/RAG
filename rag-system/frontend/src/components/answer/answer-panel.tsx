@@ -839,7 +839,7 @@ function SourcesPanel({
                   ) : null}
                   {typeof citation.score === "number" ? (
                     <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-brand-600 dark:bg-brand-500/20 dark:text-brand-200">
-                      相关性 {(citation.score * 100).toFixed(0)}%
+                      相关性 {(citation.score * 100).toFixed(1)}%
                     </span>
                   ) : null}
                 </div>

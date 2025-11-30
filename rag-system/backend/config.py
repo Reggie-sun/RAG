@@ -41,6 +41,11 @@ class Settings:
     ollama_timeout: float = float(os.getenv("OLLAMA_TIMEOUT", "25"))
     embedding_model_path: Path = Path(os.getenv("EMBEDDING_MODEL_PATH", "/home/reggie/bge-m3")).expanduser()
     embedding_device: str = os.getenv("EMBEDDING_DEVICE", "auto").strip()
+    rerank_api_key: str = os.getenv("RERANK_API_KEY", "").strip()
+    rerank_api_base_url: str = os.getenv("RERANK_API_BASE_URL", "").strip()
+    zhipu_api_key: str = os.getenv("ZHIPU_API_KEY", "").strip()
+    zhipu_api_base_url: str = os.getenv("ZHIPU_API_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").strip()
+    zhipu_chat_model: str = os.getenv("ZHIPU_CHAT_MODEL", "glm-4.6").strip()
     data_dir: Path = (base_dir / "../data").resolve()
     faiss_index_path: Path = Path(
         os.getenv("FAISS_INDEX_PATH", base_dir / "../data/faiss_index")
@@ -59,11 +64,11 @@ class Settings:
     use_rerank: bool = os.getenv("USE_RERANK", "true").lower() in {"1", "true", "yes"}
     rerank_model: str = os.getenv("RERANK_MODEL", "gpt-4o-mini")
     retrieval_default_top_k: int = int(os.getenv("RETRIEVAL_TOP_K", "6"))
-    retrieval_max_top_k: int = int(os.getenv("RETRIEVAL_MAX_TOP_K", "20"))
-    retrieval_confidence_threshold: float = float(os.getenv("RETRIEVAL_CONFIDENCE_THRESHOLD", "0.45"))
+    retrieval_max_top_k: int = int(os.getenv("RETRIEVAL_MAX_TOP_K", "10"))
+    retrieval_confidence_threshold: float = float(os.getenv("RETRIEVAL_CONFIDENCE_THRESHOLD", "0.6"))
     # 原文摘录使用更宽松的阈值，尽量保留 top-k 片段
     retrieval_excerpt_confidence_threshold: float = float(
-        os.getenv("RETRIEVAL_EXCERPT_CONFIDENCE_THRESHOLD", "0.15")
+        os.getenv("RETRIEVAL_EXCERPT_CONFIDENCE_THRESHOLD", "0.4")
     )
     max_retrieval_logs: int = int(os.getenv("MAX_RETRIEVAL_LOGS", "500"))
     doc_answer_threshold: float = float(os.getenv("DOC_ANSWER_THRESHOLD", "0.6"))

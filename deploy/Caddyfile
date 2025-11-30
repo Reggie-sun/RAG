@@ -37,6 +37,11 @@
     reverse_proxy {$RAG_CPU_UPSTREAM:cpu-api:8001}
 }
 
+(wx_site) {
+    import common_site_base
+    reverse_proxy 127.0.0.1:8080
+}
+
 http://{$RAG_DOMAIN:localhost} {
     import gpu_site
 }
@@ -67,4 +72,12 @@ http://srj666.com {
 
 https://srj666.com {
     import gpu_site
+}
+
+http://wx.srj666.com {
+    import wx_site
+}
+
+https://wx.srj666.com {
+    import wx_site
 }

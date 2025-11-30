@@ -5,8 +5,12 @@ set -euo pipefail
 source /home/reggie/miniconda3/etc/profile.d/conda.sh
 conda activate RAG
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${PROJECT_ROOT}/rag-system:${PYTHONPATH:-}"
+
 echo "当前 Python 环境路径: $(which python)"
 echo "Python 版本: $(python --version)"
+echo "PYTHONPATH=${PYTHONPATH}"
 
 # 检查关键依赖
 python -c "

@@ -64,6 +64,7 @@ class HybridRetriever:
             bm25_hits = self._search_bm25(query, adaptive_k)
 
             fused_results = self._fuse_results(vector_hits, bm25_hits, alpha)
+            fused_results = self._dedup_by_source_page(fused_results)
             fused_results = self._apply_filters(fused_results, filters)
             fused_results = self._filter_gibberish(fused_results, diagnostics)
             confidence = fused_results[0]["score"] if fused_results else 0.0
@@ -177,7 +178,13 @@ class HybridRetriever:
         for chunk_id, item in combined.items():
             vector_score = item.get("vector_score", 0.0)
             bm25_score = item.get("bm25_score", 0.0)
-            fused_score = alpha * vector_score + (1 - alpha) * bm25_score
+            # 如果只有一条路径有分数，就直接用该路径的分数，避免被 alpha 稀释成恒 0.6
+            if bm25_score == 0.0 and vector_score != 0.0:
+                fused_score = vector_score
+            elif vector_score == 0.0 and bm25_score != 0.0:
+                fused_score = bm25_score
+            else:
+                fused_score = alpha * vector_score + (1 - alpha) * bm25_score
             metadata = {**item.get("metadata", {})}
             metadata.setdefault("chunk_id", item.get("chunk_id"))
             metadata.setdefault("source", item.get("source"))
@@ -196,8 +203,14 @@ class HybridRetriever:
         scores = [float(item.get("score", 0.0)) for item in hits]
         max_score = max(scores)
         min_score = min(scores)
+        # 如果所有分数相同，按排名做轻微衰减，避免全部落在同一个分数档
         if max_score == min_score:
-            return {str(item.get("chunk_id")): 1.0 for item in hits}
+            normalized: Dict[str, float] = {}
+            for idx, item in enumerate(hits):
+                base = float(item.get("score", 0.0)) or 1.0
+                decay = max(0.5, 1.0 - 0.05 * idx)  # 至少保留 0.5
+                normalized[str(item.get("chunk_id"))] = base * decay
+            return normalized
         return {
             str(item.get("chunk_id")): (float(item.get("score", 0.0)) - min_score) / (max_score - min_score)
             for item in hits
@@ -268,6 +281,51 @@ class HybridRetriever:
                 diagnostics["gibberish_filtered"] = removed
             return filtered
         return hits
+
+    def _dedup_by_source_page(
+        self,
+        hits: List[Dict[str, Any]],
+        *,
+        max_per_source: int | None = None,
+        max_per_page: int | None = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        简单多样性约束：可选限制同一来源/页码的返回数量，减少重复片段。
+        若参数为空则不做限制。
+        """
+        if not hits or (max_per_source is None and max_per_page is None):
+            return hits
+
+        per_source: Dict[str, int] = {}
+        per_page: Dict[tuple[str, str], int] = {}
+        diversified: List[Dict[str, Any]] = []
+
+        for item in hits:
+            md = item.get("metadata", {}) or {}
+            source = md.get("source") or item.get("source") or "unknown"
+            page = str(md.get("page", ""))
+
+            if max_per_source is not None:
+                src_count = per_source.get(source, 0)
+                if src_count >= max_per_source:
+                    continue
+            else:
+                src_count = per_source.get(source, 0)
+
+            if max_per_page is not None and page:
+                page_key = (source, page)
+                page_count = per_page.get(page_key, 0)
+                if page_count >= max_per_page:
+                    continue
+            else:
+                page_key = (source, page)
+                page_count = per_page.get(page_key, 0)
+
+            diversified.append(item)
+            per_source[source] = src_count + 1
+            per_page[page_key] = page_count + 1
+
+        return diversified or hits
 
     def _tokenize(self, text: str) -> List[str]:
         return [token.lower() for token in text.split() if token.strip()]

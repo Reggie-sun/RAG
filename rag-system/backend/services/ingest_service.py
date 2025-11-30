@@ -28,7 +28,7 @@ class IngestService:
     def ingest_file(self, file_path: Path, filename: str) -> Dict[str, int]:
         self.logger.info("ingest.start", extra={"filename": filename, "path": str(file_path)})
         documents = self._load_documents(file_path, filename)
-        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         chunks = splitter.split_documents(documents)
         if not chunks:
             raise ValueError("Document could not be parsed")
