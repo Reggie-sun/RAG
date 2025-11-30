@@ -1,6 +1,8 @@
 # Reverse proxy / TLS termination for RAG stack
 {
-    email {$CADDY_ACME_EMAIL}
+    # 内网/隧道场景，先用内部证书，避免 ACME 失败导致 502
+    # 如需公网可信证书，请改用 DNS-01 或直接暴露 80/443 再跑 ACME
+    email {$CADDY_ACME_EMAIL:admin@example.com}
     admin off
     auto_https disable_redirects
 }
@@ -37,9 +39,11 @@
     reverse_proxy {$RAG_CPU_UPSTREAM:cpu-api:8001}
 }
 
-(wx_site) {
-    import common_site_base
-    reverse_proxy 127.0.0.1:8080
+# Cloudflare DNS-01 TLS 配置片段
+(tls_dns_cf) {
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
 }
 
 http://{$RAG_DOMAIN:localhost} {
@@ -48,6 +52,7 @@ http://{$RAG_DOMAIN:localhost} {
 
 https://{$RAG_DOMAIN:localhost} {
     import gpu_site
+    import tls_dns_cf
 }
 
 http://api.srj666.com {
@@ -56,6 +61,7 @@ http://api.srj666.com {
 
 https://api.srj666.com {
     import gpu_site
+    import tls_dns_cf
 }
 
 http://cpu.srj666.com {
@@ -64,6 +70,7 @@ http://cpu.srj666.com {
 
 https://cpu.srj666.com {
     import cpu_site
+    import tls_dns_cf
 }
 
 http://srj666.com {
@@ -72,12 +79,5 @@ http://srj666.com {
 
 https://srj666.com {
     import gpu_site
-}
-
-http://wx.srj666.com {
-    import wx_site
-}
-
-https://wx.srj666.com {
-    import wx_site
+    import tls_dns_cf
 }

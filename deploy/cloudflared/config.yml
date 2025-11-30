@@ -5,34 +5,46 @@ protocol: quic
 ingress:
   # 前端（Vite）
   - hostname: www.srj666.com
-    service: https://caddy:443
+    service: https://caddy:80
     originRequest:
       originServerName: www.srj666.com
       httpHostHeader: www.srj666.com
-      noTLSVerify: true
+      http2Origin: true
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+
 
   # 通用后端 API
   - hostname: api.srj666.com
-    service: https://caddy:443
+    service: https://caddy:80
     originRequest:
       originServerName: api.srj666.com
       httpHostHeader: api.srj666.com
-      noTLSVerify: true
+      http2Origin: true
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+
 
   # CPU / 上传 / 索引刷新接口
   - hostname: cpu.srj666.com
-    service: https://caddy:443
+    service: https://caddy:80
     originRequest:
       originServerName: cpu.srj666.com
       httpHostHeader: cpu.srj666.com
-      noTLSVerify: true
+      http2Origin: true
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+
 
   - hostname: srj666.com
-    service: https://caddy:443
+    service: https://caddy:80
     originRequest:
       originServerName: srj666.com
       httpHostHeader: srj666.com
-      noTLSVerify: true
+      http2Origin: true
+      connectTimeout: 30s
+      tcpKeepAlive: 30s
+
 
   # 兜底 404
   - service: http_status:404

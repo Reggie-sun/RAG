@@ -8,7 +8,8 @@ services:
     ports: []
 
   caddy:
-    image: caddy:2.8.4-alpine
+    platform: linux/amd64
+    image: iarekylew00t/caddy-cloudflare:latest
     restart: unless-stopped
     depends_on:
       - rag-api

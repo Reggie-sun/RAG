@@ -34,9 +34,13 @@ export interface SearchRequestPayload {
 }
 
 export function getIndexStatus() {
-  return cpuClient
+  // 优先取 GPU 节点的索引状态，失败再回退 CPU，避免上传走 GPU 时前端显示 0
+  return gpuClient
     .get<IndexStatus>("/api/index/status")
-    .then((res) => res.data);
+    .then((res) => res.data)
+    .catch(() =>
+      cpuClient.get<IndexStatus>("/api/index/status").then((res) => res.data),
+    );
 }
 
 export function searchDocuments(payload: SearchRequestPayload) {
@@ -73,9 +77,10 @@ export function uploadDocuments(
     body.append("files", file);
   });
 
-  return cpuClient
+  return gpuClient
     .post<UploadResponse>("/api/upload", body, {
       headers: { "Content-Type": "multipart/form-data" },
+      timeout: 300_000, // 上传可能较大，单独放宽超时时间
       onUploadProgress(event) {
         if (!event.total) return;
         const percent = Math.round((event.loaded / event.total) * 100);

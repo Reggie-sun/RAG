@@ -70,6 +70,7 @@ inscriptis==2.6.0
 ipython==8.37.0
 ipython_pygments_lexers==1.1.1
 ir_datasets==0.5.11
+jieba==0.42.1
 jedi==0.19.2
 Jinja2==3.1.6
 jiter==0.11.1
